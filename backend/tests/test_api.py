@@ -85,6 +85,49 @@ def test_download_zip_endpoint_returns_compressed_images_archive():
     assert all(archive.read(name) for name in archive.namelist())
 
 
+def test_download_zip_endpoint_accepts_skipped_items_from_upload_dir():
+    webp_image = Image.new('RGB', (32, 32), color=(255, 0, 0))
+    webp_buffer = BytesIO()
+    webp_image.save(webp_buffer, format='WEBP', lossless=True, quality=100)
+
+    jpeg_image = Image.new('RGB', (64, 64), color=(20, 160, 120))
+    jpeg_buffer = BytesIO()
+    jpeg_image.save(jpeg_buffer, format='JPEG', quality=95)
+
+    compress_response = client.post(
+        '/api/compress',
+        files=[
+            ('files', ('keep.webp', webp_buffer.getvalue(), 'image/webp')),
+            ('files', ('photo.jpg', jpeg_buffer.getvalue(), 'image/jpeg')),
+        ],
+    )
+    assert compress_response.status_code == 200
+    items = compress_response.json()['items']
+    assert {item['status'] for item in items} == {'skipped', 'completed'}
+
+    files = []
+    expected_names = []
+    for item in items:
+        file_url = item['original_url'] if item['status'] == 'skipped' else item['compressed_url']
+        parsed = urlparse(file_url)
+        stored_name = parsed.path.rsplit('/', 1)[-1]
+        kind = parse_qs(parsed.query)['kind'][0]
+        download_name = item['file_name']
+        files.append({
+            'stored_name': stored_name,
+            'download_name': download_name,
+            'kind': kind,
+        })
+        expected_names.append(download_name)
+
+    response = client.post('/api/download/outputs.zip', json={'files': files})
+
+    assert response.status_code == 200
+    archive = zipfile.ZipFile(BytesIO(response.content))
+    assert sorted(archive.namelist()) == sorted(expected_names)
+    assert all(archive.read(name) for name in archive.namelist())
+
+
 def test_compress_endpoint_returns_400_for_broken_image_stream():
     broken_png_bytes = b'not-a-real-png-stream'
     response = client.post(

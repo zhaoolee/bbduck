@@ -96,12 +96,19 @@ function buildDownloadName(fileName: string, variant: 'original' | 'compressed')
   return variant === 'compressed' ? `${stem}-compressed${ext}` : `${stem}-original${ext}`
 }
 
-function getStoredFileName(fileUrl: string) {
+function getStoredFileInfo(fileUrl: string) {
   try {
     const parsed = new URL(fileUrl, window.location.origin)
-    return parsed.pathname.split('/').pop() ?? ''
+    const kind = parsed.searchParams.get('kind') === 'upload' ? 'upload' : 'output'
+    return {
+      storedName: parsed.pathname.split('/').pop() ?? '',
+      kind,
+    }
   } catch {
-    return ''
+    return {
+      storedName: '',
+      kind: 'output' as const,
+    }
   }
 }
 
@@ -517,14 +524,16 @@ export default function App() {
   async function downloadAllCompressedImages() {
     const files = items
       .map((item) => {
-        const storedName = getStoredFileName(item.compressed_url)
+        const fileUrl = item.status === 'skipped' ? item.original_url : item.compressed_url
+        const { storedName, kind } = getStoredFileInfo(fileUrl)
         if (!storedName) return null
         return {
           stored_name: storedName,
-          download_name: buildDownloadName(item.file_name, 'compressed'),
+          download_name: buildDownloadName(item.file_name, item.status === 'skipped' ? 'original' : 'compressed'),
+          kind,
         }
       })
-      .filter((item): item is { stored_name: string; download_name: string } => item !== null)
+      .filter((item): item is { stored_name: string; download_name: string; kind: 'output' | 'upload' } => item !== null)
 
     if (!files.length) {
       alert('当前没有可批量下载的压缩结果。')

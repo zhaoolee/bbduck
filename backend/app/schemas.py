@@ -1,5 +1,5 @@
 from typing import Literal
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class HealthResponse(BaseModel):
@@ -43,6 +43,7 @@ class CompressionBatchResponse(BaseModel):
 class BatchDownloadFile(BaseModel):
     stored_name: str
     download_name: str
+    kind: Literal['output', 'upload'] = Field(default='output')
 
 
 class BatchDownloadRequest(BaseModel):

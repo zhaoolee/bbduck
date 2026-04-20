@@ -124,7 +124,8 @@ def download_outputs_zip(payload: BatchDownloadRequest) -> Response:
     used_names: set[str] = set()
     with ZipFile(archive_buffer, mode='w', compression=ZIP_DEFLATED) as archive:
         for file in payload.files:
-            target = settings.output_dir / Path(file.stored_name).name
+            base_dir = settings.output_dir if file.kind == 'output' else settings.upload_dir
+            target = base_dir / Path(file.stored_name).name
             if not target.exists() or not target.is_file():
                 raise HTTPException(status_code=404, detail=f'Compressed file not found: {file.stored_name}')
             archive_name = _dedupe_archive_name(file.download_name, used_names)
