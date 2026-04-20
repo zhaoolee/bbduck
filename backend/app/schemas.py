@@ -1,4 +1,5 @@
 from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -14,6 +15,8 @@ class AppConfigResponse(BaseModel):
     max_file_size_mb: int
     default_parallel_uploads: int
     max_parallel_uploads: int
+    compression_profile: Literal['fidelity', 'balanced', 'smallest']
+    min_compression_saving_percent: float
     ssim_threshold: float
     psnr_threshold: float
 

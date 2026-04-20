@@ -80,6 +80,8 @@ def config() -> AppConfigResponse:
         max_file_size_mb=settings.max_file_size_mb,
         default_parallel_uploads=settings.default_parallel_uploads,
         max_parallel_uploads=settings.max_parallel_uploads,
+        compression_profile=settings.compression_profile,
+        min_compression_saving_percent=settings.min_compression_saving_percent,
         ssim_threshold=settings.ssim_threshold,
         psnr_threshold=settings.psnr_threshold,
     )

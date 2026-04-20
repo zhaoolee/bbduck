@@ -14,14 +14,18 @@ BBDuck Server 是一个面向开源社区的图片压缩服务脚手架，目标
 
 1. Python 作为主语言，负责压缩编排、质量评估、REST API。
 2. 压缩算法优先使用成熟的开源工具链：
-   - JPEG: mozJPEG
-   - PNG: zopflipng
+   - JPEG: cjpeg / jpegtran（运行时以容器内实际工具为准，默认镜像通常来自 libjpeg-turbo）
+   - PNG: zopflipng（`smallest` profile 下才会尝试更激进的 palette 路径）
    - WebP: cwebp / Pillow fallback
    - GIF: gifsicle
-3. 使用 SSIM / PSNR 评估压缩前后的视觉差异。
-4. 如果某轮压缩后的质量低于阈值，则自动轮换下一组策略。
+3. 使用 SSIM / PSNR，并对透明图增加 alpha / 白底 / 黑底复合检查，对动画图校验帧数、时长和 loop 语义。
+4. 服务提供三种压缩 profile：
+   - `fidelity`：保真优先，无法证明安全时直接返回原图
+   - `balanced`：兼容当前默认行为，在过阈值候选中优先更小结果
+   - `smallest`：更偏向体积，但仍拒绝损坏、尺寸变化或不可读取结果
 5. 开发环境通过 Vite 代理 `/api` 到 FastAPI，只暴露前端端口。
 6. 生产环境使用 FastAPI 直接托管前端静态产物，实现单容器单端口部署。
+7. 候选选择不能只看文件大小；后端会记录候选算法、参数、体积、指标和淘汰原因，无法证明安全时使用 passthrough 原图。
 
 ## 项目结构
 

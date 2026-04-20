@@ -34,6 +34,8 @@ def test_config_endpoint_exposes_supported_formats():
     payload = response.json()
     assert 'png' in payload['allowed_formats']
     assert payload['max_files'] >= 1
+    assert payload['compression_profile'] in {'fidelity', 'balanced', 'smallest'}
+    assert payload['min_compression_saving_percent'] >= 0
 
 
 def test_compress_endpoint_accepts_batch_upload():
