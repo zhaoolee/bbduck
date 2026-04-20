@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     allowed_formats: str = 'jpg,jpeg,png,webp,gif'
     max_files: int = 30
     max_file_size_mb: int = 20
-    default_parallel_uploads: int = 3
+    default_parallel_uploads: int = 6
     max_parallel_uploads: int = 10
     ssim_threshold: float = 0.985
     psnr_threshold: float = 40.0

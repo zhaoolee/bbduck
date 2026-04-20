@@ -182,7 +182,6 @@ class CompressionService:
                     candidates.append(CompressionCandidate(algorithm=f'zopflipng-i{iterations}', payload=compressed))
 
         candidates.append(CompressionCandidate(algorithm='png-pillow-optimize', payload=self._compress_raster(payload, 'PNG', 0, optimize=True)))
-        candidates.append(CompressionCandidate(algorithm='png-webp-lossless', payload=self._compress_webp(payload, lossless=True, quality=100)))
         return candidates
 
     def _build_webp_candidates(self, payload: bytes, tools: list[str]) -> list[CompressionCandidate]:

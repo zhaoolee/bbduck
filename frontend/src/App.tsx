@@ -325,7 +325,7 @@ export default function App() {
   const [pending, setPending] = useState(false)
   const [expandedQueueId, setExpandedQueueId] = useState(defaultDemoQueueItem.id)
   const [compareSliders, setCompareSliders] = useState<Record<string, number>>({ [defaultDemoQueueItem.id]: 50 })
-  const [selectedConcurrency, setSelectedConcurrency] = useState(3)
+  const [selectedConcurrency, setSelectedConcurrency] = useState(6)
   const [dragActive, setDragActive] = useState(false)
   const [downloadingZip, setDownloadingZip] = useState(false)
   const [appendNotice, setAppendNotice] = useState('')
@@ -592,8 +592,13 @@ export default function App() {
         </div>
       ) : null}
       <header className="hero-block">
-        <h1>BB鸭 图片压缩神器，让你的硬盘更耐用</h1>
-        <p className="hero-copy">支持 JPG、PNG、WebP、GIF 批量拖拽上传。</p>
+        <div className="hero-brand">
+          <img className="hero-logo" src="/bbduck-logo.jpg" alt="BB鸭 logo" />
+          <div className="hero-brand-copy">
+            <h1>BB鸭 图片压缩神器，让你的硬盘更耐用</h1>
+            <p className="hero-copy">支持 JPG、PNG、WebP、GIF 批量拖拽上传。</p>
+          </div>
+        </div>
 
         <div className="hero-actions">
           <label className="primary-button">

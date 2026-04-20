@@ -105,7 +105,36 @@ def test_build_png_candidates_uses_color_safe_defaults(monkeypatch):
     assert 'pngquant-72-92' not in algorithms
     assert 'pngquant-60-85' not in algorithms
     assert 'zopflipng-i15' in algorithms
-    assert 'png-webp-lossless' in algorithms
+    assert 'png-webp-lossless' not in algorithms
+
+
+def test_compress_png_keeps_png_extension_and_mime(monkeypatch, tmp_path):
+    service = CompressionService()
+    payload = build_image_bytes('PNG')
+
+    monkeypatch.setattr('app.services.compress.settings.data_dir', tmp_path)
+    for directory in ('uploads', 'output', 'tmp'):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        service,
+        '_build_candidates',
+        lambda file_name, payload, suffix: [
+            service.candidate_type(algorithm='passthrough', payload=payload),
+            service.candidate_type(algorithm='png-pillow-optimize', payload=b'png-result'),
+        ],
+    )
+    monkeypatch.setattr(
+        service,
+        '_choose_candidate',
+        lambda original, candidates: service.assessment_type(candidate=candidates[1], ssim=1.0, psnr=99.0),
+    )
+
+    item = service.compress_bytes('demo.png', payload)
+
+    assert item.compressed_url.endswith('.compressed.png?kind=output')
+    assert item.mime_type == 'image/png'
+    assert item.algorithm == 'png-pillow-optimize'
 
 
 def test_pillow_save_kwargs_preserve_icc_profile():
