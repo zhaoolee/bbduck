@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+.env
+*.log
+*.db
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Uploads / outputs
+backend/data/uploads/
+backend/data/output/
+backend/data/tmp/
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+      - backend-data:/app/data
+    expose:
+      - "8000"
+    environment:
+      BBDUCK_APP_NAME: BBDuck Server
+      BBDUCK_ALLOWED_FORMATS: jpg,jpeg,png,webp,gif
+      BBDUCK_MAX_FILES: 30
+      BBDUCK_MAX_FILE_SIZE_MB: 20
+      BBDUCK_SSIM_THRESHOLD: 0.96
+      BBDUCK_PSNR_THRESHOLD: 32
+      BBDUCK_FRONTEND_DIST: /app/static
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    depends_on:
+      - backend
+
+volumes:
+  backend-data:
+  frontend-node-modules:
