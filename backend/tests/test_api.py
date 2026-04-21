@@ -10,6 +10,7 @@ from PIL import Image
 
 from app.api import routes
 from app.main import app
+import app.main as app_main
 from app.schemas import CompressionItem, CompressionMetrics
 
 
@@ -27,6 +28,20 @@ def test_health_endpoint_returns_ok():
     response = client.get('/api/health')
     assert response.status_code == 200
     assert response.json()['status'] == 'ok'
+
+
+def test_spa_serves_root_level_static_files_from_frontend_dist(tmp_path, monkeypatch):
+    static_file = tmp_path / 'bbduck-logo.jpg'
+    static_file.write_bytes(b'fake-jpeg-bytes')
+    (tmp_path / 'index.html').write_text('<!doctype html><html><body>fallback</body></html>', encoding='utf-8')
+
+    monkeypatch.setattr(app_main, 'frontend_dist', tmp_path)
+
+    response = client.get('/bbduck-logo.jpg')
+
+    assert response.status_code == 200
+    assert response.content == b'fake-jpeg-bytes'
+    assert response.headers['content-type'] in {'image/jpeg', 'image/jpg'}
 
 
 def test_config_endpoint_exposes_supported_formats():

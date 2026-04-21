@@ -24,6 +24,17 @@ if frontend_dist.exists():
         app.mount('/assets', StaticFiles(directory=assets_dir), name='assets')
 
 
+def _serve_frontend_static_file(full_path: str):
+    candidate = (frontend_dist / full_path).resolve()
+    try:
+        candidate.relative_to(frontend_dist.resolve())
+    except ValueError:
+        return None
+    if candidate.is_file():
+        return FileResponse(candidate)
+    return None
+
+
 @app.get('/', response_model=None)
 def spa_index():
     index_file = frontend_dist / 'index.html'
@@ -36,6 +47,10 @@ def spa_index():
 def spa_fallback(full_path: str):
     if full_path.startswith('api/'):
         return {'message': 'API route not found'}
+
+    static_file_response = _serve_frontend_static_file(full_path)
+    if static_file_response is not None:
+        return static_file_response
 
     index_file = frontend_dist / 'index.html'
     if index_file.exists():
