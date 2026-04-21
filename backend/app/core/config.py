@@ -1,4 +1,6 @@
 from pathlib import Path
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -19,6 +21,8 @@ class Settings(BaseSettings):
     max_file_size_mb: int = 20
     default_parallel_uploads: int = 6
     max_parallel_uploads: int = 10
+    compression_profile: Literal['safe', 'visual-lossless', 'aggressive'] = 'visual-lossless'
+    min_compression_saving_percent: float = 1.0
     ssim_threshold: float = 0.985
     psnr_threshold: float = 40.0
     gif_lossy_ssim_threshold: float = 0.95

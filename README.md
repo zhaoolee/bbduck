@@ -1,6 +1,6 @@
 # bbduck-server
 
-BBDuck Server 是一个面向开源社区的图片压缩服务脚手架，目标是做成“Web 版 PP鸭”，并明确以“保真优先”为产品定位：
+BBDuck Server 是一个面向开源社区的图片压缩服务脚手架，目标是做成“Web 版 PP鸭”，并明确以“视觉无损优先”为产品定位：
 
 - 支持 jpg / png / webp / gif
 - 支持批量拖拽上传
@@ -13,15 +13,19 @@ BBDuck Server 是一个面向开源社区的图片压缩服务脚手架，目标
 ## 设计目标
 
 1. Python 作为主语言，负责压缩编排、质量评估、REST API。
-2. 压缩算法优先使用成熟的开源工具链：
-   - JPEG: mozJPEG
-   - PNG: zopflipng
-   - WebP: cwebp / Pillow fallback
-   - GIF: gifsicle
-3. 使用 SSIM / PSNR 评估压缩前后的视觉差异。
-4. 如果某轮压缩后的质量低于阈值，则自动轮换下一组策略。
-5. 开发环境通过 Vite 代理 `/api` 到 FastAPI，只暴露前端端口。
-6. 生产环境使用 FastAPI 直接托管前端静态产物，实现单容器单端口部署。
+2. 当前默认压缩模式为 `visual-lossless`，目标是在肉眼几乎看不出差异的前提下尽量缩小体积；当候选收益过低或质量风险过高时，直接回退原图。
+3. 压缩算法优先使用成熟的开源工具链：
+   - JPEG: jpegtran + cjpeg + Pillow fallback
+   - PNG: pngquant（高质量量化）+ zopflipng + Pillow optimize fallback
+   - WebP: cwebp（lossless / near-lossless / high-quality lossy）+ Pillow fallback
+   - GIF: gifsicle + Pillow fallback
+4. 使用 SSIM / PSNR 评估压缩前后的视觉差异，并针对不同 profile 使用不同阈值。
+5. 当前支持三种压缩 profile：
+   - `safe`：更保守，优先无损或超高质量候选
+   - `visual-lossless`：默认模式，接近 PP鸭 的视觉无损压缩路线
+   - `aggressive`：更追求体积，但仍会经过质量阈值筛选
+6. 开发环境通过 Vite 代理 `/api` 到 FastAPI，只暴露前端端口。
+7. 生产环境使用 FastAPI 直接托管前端静态产物，实现单容器单端口部署。
 
 ## 项目结构
 
@@ -71,10 +75,20 @@ docker compose up --build
 #### GIF 压缩依赖
 
 GIF 高压缩率依赖 `gifsicle`。
-当前仓库的 Docker 镜像中应包含它；如果你修改了镜像，请进入容器确认：
+当前仓库的 Docker 镜像中默认也包含：
+- `pngquant`（PNG 视觉无损量化）
+- `zopflipng`（PNG 无损优化）
+- `cwebp`（WebP lossless / near-lossless / lossy）
+- `cjpeg` / `jpegtran`（JPEG 高质量压缩与无损优化）
+
+如果你修改了镜像，请进入容器确认：
 
 ```bash
 docker compose exec backend which gifsicle
+docker compose exec backend which pngquant
+docker compose exec backend which cwebp
+docker compose exec backend which cjpeg
+docker compose exec backend which jpegtran
 docker compose exec backend gifsicle --version | head -n 1
 ```
 
@@ -96,7 +110,47 @@ docker run --rm -p 8000:8000 bbduck-server
 
 - http://localhost:8000
 
-### 3. 常用自测命令
+### 3. 自动构建 Docker 镜像
+
+仓库已增加 GitHub Actions 自动构建流程，风格与 `zhaoolee/notes` 保持一致：
+
+- 推送 `dev` 分支时，自动构建并发布 Docker Hub `zhaoolee/bbduck:dev`
+- 推送 `main` 分支时，自动构建并发布 Docker Hub `zhaoolee/bbduck:latest`
+- 推送 `v*` tag 时，会额外发布同名版本标签
+- 所有构建都会附带一个 `sha-<commit>` 标签，便于回滚
+- 也支持在 GitHub Actions 页面手动触发一次构建
+
+GitHub 仓库需要提前配置：
+
+- `secrets.DOCKERHUB_USERNAME`
+- `secrets.DOCKERHUB_TOKEN`
+- 可选：`vars.DOCKERHUB_REPOSITORY`（不填时默认使用 `bbduck`）
+
+#### 如何配置 Docker Hub 自动发布
+
+```bash
+# 1. 设置 Docker Hub 用户名
+gh secret set DOCKERHUB_USERNAME --repo zhaoolee/bbduck
+
+# 2. 设置 Docker Hub Access Token
+gh secret set DOCKERHUB_TOKEN --repo zhaoolee/bbduck
+
+# 3. 设置镜像仓库名（可选，不设时默认 bbduck）
+gh variable set DOCKERHUB_REPOSITORY --body 'bbduck' --repo zhaoolee/bbduck
+
+# 4. 检查是否配置成功
+gh secret list --repo zhaoolee/bbduck
+gh variable list --repo zhaoolee/bbduck
+```
+
+拉取示例：
+
+```bash
+docker pull zhaoolee/bbduck:dev
+docker pull zhaoolee/bbduck:latest
+```
+
+### 4. 常用自测命令
 
 后端测试：
 
@@ -128,7 +182,7 @@ curl -s -X POST \
 检查服务是否启动。
 
 ### `GET /api/config`
-获取当前支持格式、质量阈值、压缩策略。
+获取当前支持格式、质量阈值、压缩 profile、最小收益阈值等运行配置。
 
 ### `POST /api/compress`
 批量上传图片并返回压缩结果：

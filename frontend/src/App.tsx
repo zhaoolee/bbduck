@@ -24,14 +24,25 @@ type QueueItem = {
   status: QueueStatus
   progress: number
   detail: string
+  logs: string[]
   sourceFile?: File
   result?: CompressionItem
+}
+
+function formatSpendTimeMs(spendTimeMs?: number) {
+  if (spendTimeMs === undefined || Number.isNaN(spendTimeMs) || spendTimeMs < 0) return ''
+  return ` · 耗时 ${spendTimeMs} ms`
 }
 
 function formatSize(size: number) {
   if (size < 1024) return `${size} B`
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
   return `${(size / 1024 / 1024).toFixed(2)} MB`
+}
+
+function formatCompactSize(size: number) {
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)}KB`
+  return `${(size / 1024 / 1024).toFixed(1)}MB`
 }
 
 function getVisualQualityLabel(ssim: number, psnr: number) {
@@ -101,7 +112,7 @@ function getStoredFileInfo(fileUrl: string) {
     const parsed = new URL(fileUrl, window.location.origin)
     const kind = parsed.searchParams.get('kind') === 'upload' ? 'upload' : 'output'
     return {
-      storedName: parsed.pathname.split('/').pop() ?? '',
+      storedName: decodeURIComponent(parsed.pathname.split('/').pop() ?? ''),
       kind,
     }
   } catch {
@@ -135,6 +146,7 @@ function buildQueueItem(file: File, index: number): QueueItem {
     status: 'queued',
     progress: 0,
     detail: '等待压缩开始',
+    logs: [],
     sourceFile: file,
   }
 }
@@ -145,6 +157,7 @@ const defaultDemoQueueItem: QueueItem = {
   status: 'completed',
   progress: 100,
   detail: '默认示例图，可直接查看压缩前后效果',
+  logs: ['示例结果已就绪，可拖动查看压缩前后对比'],
   result: defaultDemoItem,
 }
 
@@ -168,18 +181,37 @@ function hasFileTransfer(event: DragEvent<HTMLElement> | globalThis.DragEvent) {
   return Array.from(dataTransfer.types ?? []).includes('Files')
 }
 
-function clampParallelism(value: number) {
-  return Math.min(10, Math.max(1, value))
-}
+type CompressionStreamEvent =
+  | { type: 'log'; stage?: string; message: string; spend_time_ms?: number }
+  | { type: 'error'; message: string; detail?: string }
+  | { type: 'result'; item: CompressionItem }
 
 function compressSingleFile(file: File, onProgress: (patch: Partial<QueueItem>) => void): Promise<CompressionItem> {
   return new Promise((resolve, reject) => {
     const formData = new FormData()
     formData.append('files', file)
+    formData.append('parallelism', '1')
 
     const xhr = new XMLHttpRequest()
     let processingTimer: number | undefined
     let uploadCompleted = false
+    let pseudoProgress = 42
+    let finalItem: CompressionItem | null = null
+    let streamBuffer = ''
+    let parsedLength = 0
+    const logLines: string[] = []
+
+    const pushLog = (message: string, spendTimeMs?: number) => {
+      const formattedMessage = `${message}${formatSpendTimeMs(spendTimeMs)}`
+      const nextLogs = [...logLines, formattedMessage].slice(-12)
+      logLines.splice(0, logLines.length, ...nextLogs)
+      onProgress({
+        status: 'processing',
+        progress: pseudoProgress,
+        detail: formattedMessage,
+        logs: [...logLines],
+      })
+    }
 
     const stopTimer = () => {
       if (processingTimer !== undefined) {
@@ -187,8 +219,38 @@ function compressSingleFile(file: File, onProgress: (patch: Partial<QueueItem>) 
       }
     }
 
-    xhr.open('POST', '/api/compress')
-    xhr.responseType = 'json'
+    const applyEvent = (event: CompressionStreamEvent) => {
+      if (event.type === 'log') {
+        pushLog(event.message, event.spend_time_ms)
+        return
+      }
+      if (event.type === 'error') {
+        stopTimer()
+        const message = event.detail ? `${event.message}：${event.detail}` : event.message
+        reject(new Error(message))
+        return
+      }
+      finalItem = event.item
+    }
+
+    const parseStreamChunk = () => {
+      const rawChunk = xhr.responseText.slice(parsedLength)
+      if (!rawChunk) return
+      parsedLength = xhr.responseText.length
+      streamBuffer += rawChunk
+      const lines = streamBuffer.split('\n')
+      streamBuffer = lines.pop() ?? ''
+
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        const event = JSON.parse(trimmed) as CompressionStreamEvent
+        applyEvent(event)
+      }
+    }
+
+    xhr.open('POST', '/api/compress/stream')
+    xhr.responseType = 'text'
 
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return
@@ -197,25 +259,32 @@ function compressSingleFile(file: File, onProgress: (patch: Partial<QueueItem>) 
         status: 'uploading',
         progress: percent,
         detail: `正在上传 ${percent}%`,
+        logs: [`正在上传 ${percent}%`],
       })
     }
 
     xhr.upload.onload = () => {
       uploadCompleted = true
-      let pseudoProgress = 42
+      pseudoProgress = 42
       onProgress({
         status: 'processing',
         progress: pseudoProgress,
-        detail: '文件已上传，正在服务端压缩…',
+        detail: '文件已上传，正在等待服务端返回详细日志…',
+        logs: ['文件已上传，正在等待服务端返回详细日志…'],
       })
       processingTimer = window.setInterval(() => {
-        pseudoProgress = Math.min(92, pseudoProgress + 4)
+        pseudoProgress = Math.min(92, pseudoProgress + 3)
         onProgress({
           status: 'processing',
           progress: pseudoProgress,
-          detail: '正在尝试压缩策略并评估画质…',
+          detail: logLines[logLines.length - 1] ?? '正在尝试压缩策略并评估画质…',
+          logs: [...logLines],
         })
-      }, 320)
+      }, 360)
+    }
+
+    xhr.onprogress = () => {
+      parseStreamChunk()
     }
 
     xhr.onerror = () => {
@@ -225,32 +294,40 @@ function compressSingleFile(file: File, onProgress: (patch: Partial<QueueItem>) 
 
     xhr.onload = () => {
       stopTimer()
-      const payload = xhr.response ?? JSON.parse(xhr.responseText || '{}')
+      parseStreamChunk()
       if (xhr.status < 200 || xhr.status >= 300) {
-        reject(new Error(payload?.detail ?? '上传失败'))
+        try {
+          const payload = JSON.parse(xhr.responseText || '{}')
+          reject(new Error(payload?.detail ?? '上传失败'))
+        } catch {
+          reject(new Error('上传失败'))
+        }
         return
       }
-      const item = payload?.items?.[0]
-      if (!item) {
+      if (!finalItem) {
         reject(new Error('服务端未返回压缩结果'))
         return
       }
       onProgress({
-        status: item.status === 'skipped' ? 'skipped' : 'completed',
+        status: finalItem.status === 'skipped' ? 'skipped' : 'completed',
         progress: 100,
-        detail: item.status === 'skipped' ? '已最小，无需压缩，可直接查看原图' : uploadCompleted ? '压缩完成，可以查看前后对比' : '上传完成',
-        result: item,
+        detail: finalItem.status === 'skipped' ? '已最小，无需压缩，可直接查看原图' : uploadCompleted ? '压缩完成，可以查看前后对比' : '上传完成',
+        logs: [...logLines],
+        result: finalItem,
       })
-      resolve(item)
+      resolve(finalItem)
     }
 
     xhr.send(formData)
   })
 }
 
+type PreviewLoadState = 'loading' | 'loaded' | 'failed'
+
 function ComparePreview({
   originalUrl,
   compressedUrl,
+  mimeType,
   sliderValue,
   isPending,
   queueId,
@@ -259,17 +336,34 @@ function ComparePreview({
 }: {
   originalUrl: string
   compressedUrl: string
+  mimeType: string
   sliderValue: number
   isPending: boolean
   queueId: string
   onPointerEnter: (queueId: string, event: PointerEvent<HTMLDivElement>) => void
   onPointerMove: (queueId: string, event: PointerEvent<HTMLDivElement>) => void
 }) {
+  const shouldSyncGifPreview = mimeType === 'image/gif'
   const [readyToken, setReadyToken] = useState(0)
-  const [isReady, setIsReady] = useState(false)
+  const [isReady, setIsReady] = useState(!shouldSyncGifPreview)
+  const [originalState, setOriginalState] = useState<PreviewLoadState>('loading')
+  const [compressedState, setCompressedState] = useState<PreviewLoadState>('loading')
 
   useEffect(() => {
     let cancelled = false
+    let fallbackTimer: number | undefined
+
+    setReadyToken((current) => current + 1)
+    setOriginalState('loading')
+    setCompressedState('loading')
+
+    if (!shouldSyncGifPreview) {
+      setIsReady(true)
+      return () => {
+        cancelled = true
+      }
+    }
+
     setIsReady(false)
 
     const preload = (src: string) =>
@@ -280,23 +374,35 @@ function ComparePreview({
         image.src = src
       })
 
+    fallbackTimer = window.setTimeout(() => {
+      if (cancelled) return
+      setIsReady(true)
+    }, 8000)
+
     Promise.all([preload(originalUrl), preload(compressedUrl)])
       .catch(() => undefined)
       .finally(() => {
         if (cancelled) return
-        setReadyToken((current) => current + 1)
+        if (fallbackTimer !== undefined) {
+          window.clearTimeout(fallbackTimer)
+        }
         setIsReady(true)
       })
 
     return () => {
       cancelled = true
+      if (fallbackTimer !== undefined) {
+        window.clearTimeout(fallbackTimer)
+      }
     }
-  }, [originalUrl, compressedUrl])
+  }, [originalUrl, compressedUrl, shouldSyncGifPreview])
 
   const progressMaskStyle = useMemo(
     () => ({ clipPath: `inset(0 ${100 - sliderValue}% 0 0)` }),
     [sliderValue],
   )
+  const hasPreviewError = originalState === 'failed' || compressedState === 'failed'
+  const isPreviewLoading = !hasPreviewError && (!isReady || originalState === 'loading' || compressedState === 'loading')
 
   return (
     <div
@@ -306,11 +412,39 @@ function ComparePreview({
     >
       {isReady ? (
         <>
-          <img key={`compressed-${readyToken}`} className="base-image" src={compressedUrl} alt="compressed preview" />
+          <img
+            key={`compressed-${readyToken}`}
+            className="base-image"
+            src={compressedUrl}
+            alt="compressed preview"
+            loading="eager"
+            decoding="async"
+            onLoad={() => setCompressedState('loaded')}
+            onError={() => setCompressedState('failed')}
+          />
           <div className="overlay-image" style={progressMaskStyle}>
-            <img key={`original-${readyToken}`} src={originalUrl} alt="original preview" />
+            <img
+              key={`original-${readyToken}`}
+              src={originalUrl}
+              alt="original preview"
+              loading="eager"
+              decoding="async"
+              onLoad={() => setOriginalState('loaded')}
+              onError={() => setOriginalState('failed')}
+            />
           </div>
         </>
+      ) : null}
+      {hasPreviewError ? (
+        <div className="compare-stage-status is-error">
+          <strong>预览加载失败</strong>
+          <span>图片已压缩完成，可先用下方按钮下载查看。</span>
+        </div>
+      ) : isPreviewLoading ? (
+        <div className="compare-stage-status is-loading">
+          <strong>正在加载对比预览</strong>
+          <span>图片已压缩完成，预览加载后会自动显示。</span>
+        </div>
       ) : null}
       <div className="compare-divider" style={{ left: `${sliderValue}%` }} />
       <span className="corner-label left">压缩前</span>
@@ -319,16 +453,35 @@ function ComparePreview({
   )
 }
 
+const DEFAULT_QUEUE_CONCURRENCY = 2
+const MIN_QUEUE_CONCURRENCY = 1
+const MAX_QUEUE_CONCURRENCY = 6
+const SHOW_COMPRESSION_LOGS_STORAGE_KEY = 'bbduck-show-compression-logs'
+const QUEUE_CONCURRENCY_STORAGE_KEY = 'bbduck-queue-concurrency'
+
+function clampQueueConcurrency(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_QUEUE_CONCURRENCY
+  return Math.min(MAX_QUEUE_CONCURRENCY, Math.max(MIN_QUEUE_CONCURRENCY, Math.round(value)))
+}
+
 export default function App() {
   const [items, setItems] = useState<CompressionItem[]>([])
   const [queueItems, setQueueItems] = useState<QueueItem[]>([])
   const [pending, setPending] = useState(false)
   const [expandedQueueId, setExpandedQueueId] = useState(defaultDemoQueueItem.id)
   const [compareSliders, setCompareSliders] = useState<Record<string, number>>({ [defaultDemoQueueItem.id]: 50 })
-  const [selectedConcurrency, setSelectedConcurrency] = useState(6)
   const [dragActive, setDragActive] = useState(false)
   const [downloadingZip, setDownloadingZip] = useState(false)
   const [appendNotice, setAppendNotice] = useState('')
+  const [showCompressionLogs, setShowCompressionLogs] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.localStorage.getItem(SHOW_COMPRESSION_LOGS_STORAGE_KEY) === 'true'
+  })
+  const [queueConcurrency, setQueueConcurrency] = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_QUEUE_CONCURRENCY
+    return clampQueueConcurrency(Number(window.localStorage.getItem(QUEUE_CONCURRENCY_STORAGE_KEY) ?? DEFAULT_QUEUE_CONCURRENCY))
+  })
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const dragDepthRef = useRef(0)
   const queueSectionRef = useRef<HTMLElement | null>(null)
   const queueItemsRef = useRef<QueueItem[]>([])
@@ -343,6 +496,25 @@ export default function App() {
   const overallQueueProgress = visibleQueueItems.length
     ? Math.round(visibleQueueItems.reduce((sum, item) => sum + item.progress, 0) / visibleQueueItems.length)
     : 0
+  const summaryResults = visibleQueueItems
+    .map((item) => item.result)
+    .filter((item): item is CompressionItem => item !== undefined)
+  const totalOriginalSize = summaryResults.reduce((sum, item) => sum + item.original_size, 0)
+  const totalCompressedSize = summaryResults.reduce((sum, item) => sum + item.compressed_size, 0)
+  const totalSavedPercent = totalOriginalSize > 0
+    ? Math.round((1 - totalCompressedSize / totalOriginalSize) * 100)
+    : 0
+  const completionSummary = summaryResults.length > 0
+    ? `共压缩 ${summaryResults.length} 个文件, 节省空间 ${totalSavedPercent}% (${formatCompactSize(totalOriginalSize)} → ${formatCompactSize(totalCompressedSize)})`
+    : ''
+
+  useEffect(() => {
+    window.localStorage.setItem(SHOW_COMPRESSION_LOGS_STORAGE_KEY, String(showCompressionLogs))
+  }, [showCompressionLogs])
+
+  useEffect(() => {
+    window.localStorage.setItem(QUEUE_CONCURRENCY_STORAGE_KEY, String(queueConcurrency))
+  }, [queueConcurrency])
 
   useEffect(() => {
     const preventBrowserOpen = (event: globalThis.DragEvent) => {
@@ -401,6 +573,7 @@ export default function App() {
       status: 'uploading',
       progress: 5,
       detail: '准备上传',
+      logs: ['准备上传'],
     })
 
     void compressSingleFile(file, (patch) => patchQueueItem(queueItem.id, patch))
@@ -414,6 +587,7 @@ export default function App() {
           status: 'failed',
           progress: 100,
           detail: message,
+          logs: [...(queueItemsRef.current.find((item) => item.id === queueItem.id)?.logs ?? []), message].slice(-12),
         })
       })
       .finally(() => {
@@ -427,7 +601,7 @@ export default function App() {
   }
 
   function pumpQueue() {
-    const maxWorkers = clampParallelism(selectedConcurrency)
+    const maxWorkers = queueConcurrency
     while (activeWorkersRef.current < maxWorkers) {
       const nextItem = queueItemsRef.current.find(
         (item) => item.status === 'queued' && !reservedQueueIdsRef.current.has(item.id),
@@ -442,7 +616,7 @@ export default function App() {
   useEffect(() => {
     if (!queueItems.length) return
     pumpQueue()
-  }, [queueItems, selectedConcurrency])
+  }, [queueItems, queueConcurrency])
 
   async function submitFiles(fileList: FileList | File[]) {
     const files = extractImageFiles(fileList)
@@ -591,43 +765,86 @@ export default function App() {
           <span>支持自动识别多张 JPG / PNG / WEBP / GIF 图片并加入队列</span>
         </div>
       ) : null}
-      <header className="hero-block">
-        <div className="hero-brand">
-          <img className="hero-logo" src="/bbduck-logo.jpg" alt="BB鸭 logo" />
-          <div className="hero-brand-copy">
-            <h1>BB鸭 图片压缩神器，让你的硬盘更耐用</h1>
-            <p className="hero-copy">支持 JPG、PNG、WebP、GIF 批量拖拽上传。</p>
+
+      <header className="page-topbar">
+        <div className="page-topbar-inner">
+          <div className="page-topbar-brand">
+            <img className="page-topbar-logo" src="/bbduck-logo.jpg" alt="BB鸭 logo" />
+            <div className="page-topbar-copy">
+              <strong className="page-topbar-title">BB鸭 给图片减减肥 让画质顶呱呱</strong>
+            </div>
+          </div>
+
+          <div className="page-topbar-actions">
+            <button
+              type="button"
+              className="page-topbar-settings"
+              aria-label="打开设置"
+              onClick={() => setSettingsOpen(true)}
+            >
+              设置
+            </button>
           </div>
         </div>
-
-        <div className="hero-actions">
-          <label className="primary-button">
-            {pending ? '继续添加图片到队列' : '上传图片开始压缩'}
-            <input type="file" accept=".jpg,.jpeg,.png,.webp,.gif" multiple onChange={onInputChange} />
-          </label>
-        </div>
-
-        {appendNotice ? <p className="hero-append-notice">{appendNotice}</p> : null}
-
-        {queueItems.length > 0 ? (
-          <div className="hero-queue-status" aria-live="polite">
-            <div className="hero-queue-status-head">
-              <strong>{pending ? '正在处理压缩队列' : '本轮压缩已完成'}</strong>
-              <span>
-                {completedQueueCount}/{queueItems.length} 已完成 · 总进度 {overallQueueProgress}%
-              </span>
-            </div>
-            <div className="hero-queue-progress">
-              <div className="hero-queue-progress-bar" style={{ width: `${overallQueueProgress}%` }} />
-            </div>
-            {currentQueueItem ? (
-              <p>
-                当前文件：{currentQueueItem.fileName} · {queueStatusLabel[currentQueueItem.status]} · {currentQueueItem.detail}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
       </header>
+
+      {settingsOpen ? (
+        <div className="settings-modal-backdrop" onClick={() => setSettingsOpen(false)}>
+          <div className="settings-modal" role="dialog" aria-modal="true" aria-label="设置" onClick={(event) => event.stopPropagation()}>
+            <div className="settings-modal-head">
+              <button type="button" className="settings-modal-close" aria-label="关闭设置" onClick={() => setSettingsOpen(false)}>×</button>
+            </div>
+
+            <div className="settings-grid">
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span>显示压缩日志</span>
+                </div>
+                <label className="settings-switch" aria-label="显示压缩日志">
+                  <input
+                    type="checkbox"
+                    checked={showCompressionLogs}
+                    onChange={(event) => setShowCompressionLogs(event.target.checked)}
+                  />
+                  <span className="settings-switch-slider" aria-hidden="true" />
+                </label>
+              </div>
+
+              <div className="settings-row">
+                <div className="settings-row-copy">
+                  <span>并行数</span>
+                </div>
+                <label className="settings-number-control" htmlFor="queue-concurrency-input">
+                  <input
+                    id="queue-concurrency-input"
+                    type="number"
+                    min={MIN_QUEUE_CONCURRENCY}
+                    max={MAX_QUEUE_CONCURRENCY}
+                    value={queueConcurrency}
+                    onChange={(event) => {
+                      const rawValue = event.target.value
+                      setQueueConcurrency(clampQueueConcurrency(Number(rawValue)))
+                    }}
+                    onBlur={(event) => {
+                      const rawValue = event.target.value
+                      setQueueConcurrency(clampQueueConcurrency(Number(rawValue)))
+                    }}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <section className="upload-dropzone-section">
+        <label className={`upload-dropzone ${dragActive ? 'is-drag-active' : ''}`}>
+          <input type="file" accept=".jpg,.jpeg,.png,.webp,.gif" multiple onChange={onInputChange} />
+          <strong>点击或拖拽到当前区域开始压缩</strong>
+          <span>{pending ? '当前已有任务进行中，新的图片会继续追加到队列' : '支持批量上传 JPG、PNG、WebP、GIF，文件会自动加入压缩队列'}</span>
+        </label>
+        {appendNotice ? <p className="hero-append-notice">{appendNotice}</p> : null}
+      </section>
 
       <section className="result-section" ref={queueSectionRef}>
         <div className="section-heading section-heading-actions-only">
@@ -647,6 +864,7 @@ export default function App() {
           {visibleQueueItems.map((queueItem) => {
             const result = queueItem.result
             const isExpanded = Boolean(result) && expandedQueueId === queueItem.id
+            const shouldShowLogs = showCompressionLogs && queueItem.logs.length > 0 && (isExpanded || queueItem.status === 'processing' || queueItem.status === 'uploading' || queueItem.status === 'failed')
             const sliderValue = compareSliders[queueItem.id] ?? 50
             const visualQuality = result ? getVisualQualityLabel(result.metrics.ssim, result.metrics.psnr) : null
             return (
@@ -666,6 +884,20 @@ export default function App() {
                   </div>
                 </button>
 
+                {shouldShowLogs ? (
+                  <div className="queue-log-panel" aria-live="polite">
+                    <div className="queue-log-panel-head">
+                      <strong>压缩日志</strong>
+                      <span>{queueItem.logs.length} 条</span>
+                    </div>
+                    <ul>
+                      {queueItem.logs.map((line, index) => (
+                        <li key={`${queueItem.id}-log-${index}`}>{line}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
                 {isExpanded && result ? (
                   <div className="result-card-expanded">
                     <div className="queue-progress-meta">
@@ -676,6 +908,7 @@ export default function App() {
                     <ComparePreview
                       originalUrl={result.original_url}
                       compressedUrl={result.compressed_url}
+                      mimeType={result.mime_type}
                       sliderValue={sliderValue}
                       isPending={pending}
                       queueId={queueItem.id}
@@ -710,23 +943,28 @@ export default function App() {
         </div>
       </section>
 
-      <section className="page-footer-settings">
-        <div className="parallelism-control">
-          <label htmlFor="parallelism-select">并行数</label>
-          <select
-            id="parallelism-select"
-            value={selectedConcurrency}
-            disabled={pending}
-            onChange={(event) => setSelectedConcurrency(clampParallelism(Number(event.target.value)))}
-          >
-            {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
-              <option key={value} value={value}>
-                {value}
-              </option>
-            ))}
-          </select>
+      <div className="page-bottom-progress" aria-live="polite">
+        <div className="page-bottom-progress-inner">
+          <div className="page-bottom-progress-head">
+            <strong>{pending ? '正在处理压缩队列' : '压缩完成'}</strong>
+            <span>
+              {pending
+                ? (queueItems.length > 0
+                  ? `${completedQueueCount}/${queueItems.length} 已完成 · 总进度 ${overallQueueProgress}%`
+                  : `${visibleQueueItems.length} 个队列项`)
+                : completionSummary}
+            </span>
+          </div>
+          <div className="hero-queue-progress page-bottom-progress-bar-shell">
+            <div className="hero-queue-progress-bar" style={{ width: `${overallQueueProgress}%` }} />
+          </div>
+          {pending && currentQueueItem ? (
+            <p className="page-bottom-progress-detail">
+              当前文件：{currentQueueItem.fileName} · {queueStatusLabel[currentQueueItem.status]} · {currentQueueItem.detail}
+            </p>
+          ) : null}
         </div>
-      </section>
+      </div>
     </div>
   )
 }

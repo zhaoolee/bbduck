@@ -1,4 +1,5 @@
 from io import BytesIO
+import json
 import time
 import zipfile
 from urllib.parse import parse_qs, urlparse
@@ -34,6 +35,8 @@ def test_config_endpoint_exposes_supported_formats():
     payload = response.json()
     assert 'png' in payload['allowed_formats']
     assert payload['max_files'] >= 1
+    assert payload['compression_profile'] in {'safe', 'visual-lossless', 'aggressive'}
+    assert payload['min_compression_saving_percent'] >= 0
 
 
 def test_compress_endpoint_accepts_batch_upload():
@@ -46,6 +49,47 @@ def test_compress_endpoint_accepts_batch_upload():
     payload = response.json()
     assert len(payload['items']) == 1
     assert payload['items'][0]['metrics']['ssim'] >= 0
+
+
+def test_compress_stream_endpoint_emits_logs_and_final_result(monkeypatch):
+    png_bytes = build_png_bytes()
+
+    def fake_compress_bytes(file_name: str, payload: bytes, progress_callback=None):
+        if progress_callback is not None:
+            progress_callback({'stage': 'start', 'message': f'开始压缩 {file_name}'})
+            progress_callback({'stage': 'candidate', 'message': '生成候选 pngquant-85-98：12.3 KB'})
+        return CompressionItem(
+            file_name=file_name,
+            original_size=len(payload),
+            compressed_size=max(1, len(payload) // 2),
+            original_url=f'/api/files/{file_name}?kind=upload',
+            compressed_url=f'/api/files/{file_name}?kind=output',
+            mime_type='image/png',
+            status='completed',
+            algorithm='pngquant-85-98',
+            metrics=CompressionMetrics(compression_ratio=50.0, ssim=0.999, psnr=48.0),
+        )
+
+    monkeypatch.setattr(routes.compression_service, 'compress_bytes', fake_compress_bytes)
+
+    with client.stream(
+        'POST',
+        '/api/compress/stream',
+        files=[('files', ('demo.png', png_bytes, 'image/png'))],
+        data={'parallelism': '1'},
+    ) as response:
+        assert response.status_code == 200
+        assert response.headers['content-type'].startswith('application/x-ndjson')
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert [event['type'] for event in events[:2]] == ['log', 'log']
+    assert events[0]['message'].startswith('开始压缩 demo.png')
+    assert events[0]['spend_time_ms'] == 0
+    assert events[1]['message'].startswith('生成候选 pngquant-85-98')
+    assert isinstance(events[1]['spend_time_ms'], int)
+    assert events[1]['spend_time_ms'] >= 0
+    assert events[-1]['type'] == 'result'
+    assert events[-1]['item']['algorithm'] == 'pngquant-85-98'
 
 
 def test_download_zip_endpoint_returns_compressed_images_archive():
@@ -126,6 +170,34 @@ def test_download_zip_endpoint_accepts_skipped_items_from_upload_dir():
     archive = zipfile.ZipFile(BytesIO(response.content))
     assert sorted(archive.namelist()) == sorted(expected_names)
     assert all(archive.read(name) for name in archive.namelist())
+
+
+def test_download_zip_endpoint_accepts_urlencoded_stored_names(tmp_path, monkeypatch):
+    monkeypatch.setattr('app.api.routes.settings.data_dir', tmp_path)
+    for directory in ('uploads', 'output', 'tmp'):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
+
+    stored_name = '4ad754e30ff34b3ba5f6a144e110967b-Peek 2025-06-07 16-35.compressed.gif'
+    output_file = tmp_path / 'output' / stored_name
+    output_file.write_bytes(b'gif89a')
+
+    response = client.post(
+        '/api/download/outputs.zip',
+        json={
+            'files': [
+                {
+                    'stored_name': '4ad754e30ff34b3ba5f6a144e110967b-Peek%202025-06-07%2016-35.compressed.gif',
+                    'download_name': 'Peek-compressed.gif',
+                    'kind': 'output',
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    archive = zipfile.ZipFile(BytesIO(response.content))
+    assert archive.namelist() == ['Peek-compressed.gif']
+    assert archive.read('Peek-compressed.gif') == b'gif89a'
 
 
 def test_compress_endpoint_returns_400_for_broken_image_stream():

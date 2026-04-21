@@ -1,10 +1,13 @@
 import asyncio
+import json
+import time
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import unquote
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from PIL import UnidentifiedImageError
 
 from app.core.config import settings
@@ -66,6 +69,45 @@ async def _compress_prepared_uploads(prepared_uploads: list[tuple[str, bytes]], 
     return [item for _, item in results]
 
 
+async def _stream_single_upload(file_name: str, payload: bytes):
+    queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    last_progress_at: float | None = None
+
+    def emit(event: dict[str, object]) -> None:
+        loop.call_soon_threadsafe(queue.put_nowait, event)
+
+    def progress_callback(entry: dict[str, object]) -> None:
+        nonlocal last_progress_at
+        now = time.perf_counter()
+        spend_time_ms = 0 if last_progress_at is None else max(0, int(round((now - last_progress_at) * 1000)))
+        last_progress_at = now
+        emit({'type': 'log', 'spend_time_ms': spend_time_ms, **entry})
+
+    async def generator():
+        def run_compression() -> None:
+            try:
+                item = compression_service.compress_bytes(file_name, payload, progress_callback=progress_callback)
+            except (OSError, UnidentifiedImageError, ValueError) as error:
+                emit({'type': 'error', 'message': f'压缩失败：{file_name}', 'detail': str(error)})
+            else:
+                emit({'type': 'result', 'item': item.model_dump(mode='json')})
+            finally:
+                emit({'type': 'done'})
+
+        worker = asyncio.create_task(asyncio.to_thread(run_compression))
+
+        while True:
+            event = await queue.get()
+            if event.get('type') == 'done':
+                break
+            yield json.dumps(event, ensure_ascii=False) + '\n'
+
+        await worker
+
+    return generator()
+
+
 @router.get('/health', response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status='ok', app=settings.app_name)
@@ -80,6 +122,8 @@ def config() -> AppConfigResponse:
         max_file_size_mb=settings.max_file_size_mb,
         default_parallel_uploads=settings.default_parallel_uploads,
         max_parallel_uploads=settings.max_parallel_uploads,
+        compression_profile=settings.compression_profile,
+        min_compression_saving_percent=settings.min_compression_saving_percent,
         ssim_threshold=settings.ssim_threshold,
         psnr_threshold=settings.psnr_threshold,
     )
@@ -115,6 +159,30 @@ async def compress(
     return CompressionBatchResponse(items=items)
 
 
+@router.post('/compress/stream')
+async def compress_stream(
+    files: list[UploadFile] = File(...),
+    parallelism: int = Form(default=1),
+) -> StreamingResponse:
+    if len(files) != 1:
+        raise HTTPException(status_code=400, detail='Streaming compression requires exactly one file.')
+    if parallelism < 1 or parallelism > settings.max_parallel_uploads:
+        raise HTTPException(status_code=400, detail=f'Parallelism must be between 1 and {settings.max_parallel_uploads}.')
+
+    upload = files[0]
+    suffix = Path(upload.filename or '').suffix.lower().lstrip('.')
+    if suffix not in settings.allowed_suffixes:
+        raise HTTPException(status_code=400, detail=f'Unsupported format: {suffix}')
+
+    payload = await upload.read()
+    max_bytes = settings.max_file_size_mb * 1024 * 1024
+    if len(payload) > max_bytes:
+        raise HTTPException(status_code=400, detail=f'File too large: {upload.filename}')
+
+    stream = await _stream_single_upload(upload.filename or 'upload.bin', payload)
+    return StreamingResponse(stream, media_type='application/x-ndjson')
+
+
 @router.post('/download/outputs.zip')
 def download_outputs_zip(payload: BatchDownloadRequest) -> Response:
     if not payload.files:
@@ -125,7 +193,8 @@ def download_outputs_zip(payload: BatchDownloadRequest) -> Response:
     with ZipFile(archive_buffer, mode='w', compression=ZIP_DEFLATED) as archive:
         for file in payload.files:
             base_dir = settings.output_dir if file.kind == 'output' else settings.upload_dir
-            target = base_dir / Path(file.stored_name).name
+            resolved_name = Path(unquote(file.stored_name)).name
+            target = base_dir / resolved_name
             if not target.exists() or not target.is_file():
                 raise HTTPException(status_code=404, detail=f'Compressed file not found: {file.stored_name}')
             archive_name = _dedupe_archive_name(file.download_name, used_names)

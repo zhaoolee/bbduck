@@ -42,7 +42,6 @@ def test_build_candidates_prefers_external_jpeg_when_tool_exists(monkeypatch):
     monkeypatch.setattr(service, 'get_available_toolchain', lambda: {'jpeg': ['cjpeg'], 'png': [], 'webp': [], 'gif': []})
     monkeypatch.setattr(service, '_compress_with_command', lambda *args, **kwargs: b'external-jpeg-result')
     monkeypatch.setattr(service, '_compress_raster', lambda *args, **kwargs: b'pillow-jpeg-result')
-    monkeypatch.setattr(service, '_compress_webp', lambda *args, **kwargs: b'lossless-webp-jpeg')
 
     candidates = service._build_candidates('demo.jpg', payload, 'jpg')
     algorithms = [candidate.algorithm for candidate in candidates]
@@ -50,6 +49,102 @@ def test_build_candidates_prefers_external_jpeg_when_tool_exists(monkeypatch):
     assert candidates[0].algorithm == 'passthrough'
     assert 'jpeg-webp-lossless' not in algorithms
     assert candidates[1].algorithm.startswith('mozjpeg-cjpeg')
+
+
+def test_compress_bytes_dispatches_to_jpeg_entry(monkeypatch, tmp_path):
+    service = CompressionService()
+    payload = build_image_bytes('JPEG')
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr('app.services.compress.settings.data_dir', tmp_path)
+    for directory in ('uploads', 'output', 'tmp'):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
+
+    def fake_entry(file_name: str, entry_payload: bytes, *_args, **_kwargs):
+        calls.append((file_name, 'jpeg'))
+        return service.assessment_type(candidate=service.candidate_type(algorithm='jpeg-pillow-q92', payload=b'jpeg-result'), ssim=0.99, psnr=42.0)
+
+    monkeypatch.setattr(service, '_compress_jpeg', fake_entry)
+    monkeypatch.setattr(service, '_compress_png', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected png entry')))
+    monkeypatch.setattr(service, '_compress_webp', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected webp entry')))
+    monkeypatch.setattr(service, '_compress_gif', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected gif entry')))
+
+    item = service.compress_bytes('photo.jpg', payload)
+
+    assert calls == [('photo.jpg', 'jpeg')]
+    assert item.algorithm == 'jpeg-pillow-q92'
+
+
+def test_compress_bytes_dispatches_to_png_entry(monkeypatch, tmp_path):
+    service = CompressionService()
+    payload = build_image_bytes('PNG')
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr('app.services.compress.settings.data_dir', tmp_path)
+    for directory in ('uploads', 'output', 'tmp'):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
+
+    def fake_entry(file_name: str, entry_payload: bytes, *_args, **_kwargs):
+        calls.append((file_name, 'png'))
+        return service.assessment_type(candidate=service.candidate_type(algorithm='png-pillow-optimize', payload=b'png-result'), ssim=1.0, psnr=99.0)
+
+    monkeypatch.setattr(service, '_compress_png', fake_entry)
+    monkeypatch.setattr(service, '_compress_jpeg', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected jpeg entry')))
+    monkeypatch.setattr(service, '_compress_webp', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected webp entry')))
+    monkeypatch.setattr(service, '_compress_gif', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected gif entry')))
+
+    item = service.compress_bytes('graphic.png', payload)
+
+    assert calls == [('graphic.png', 'png')]
+    assert item.algorithm == 'png-pillow-optimize'
+
+
+def test_compress_bytes_dispatches_to_webp_entry(monkeypatch, tmp_path):
+    service = CompressionService()
+    payload = build_image_bytes('WEBP')
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr('app.services.compress.settings.data_dir', tmp_path)
+    for directory in ('uploads', 'output', 'tmp'):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
+
+    def fake_entry(file_name: str, entry_payload: bytes, *_args, **_kwargs):
+        calls.append((file_name, 'webp'))
+        return service.assessment_type(candidate=service.candidate_type(algorithm='webp-q85', payload=b'webp-result'), ssim=0.99, psnr=41.0)
+
+    monkeypatch.setattr(service, '_compress_webp', fake_entry)
+    monkeypatch.setattr(service, '_compress_jpeg', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected jpeg entry')))
+    monkeypatch.setattr(service, '_compress_png', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected png entry')))
+    monkeypatch.setattr(service, '_compress_gif', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected gif entry')))
+
+    item = service.compress_bytes('clip.webp', payload)
+
+    assert calls == [('clip.webp', 'webp')]
+    assert item.algorithm == 'webp-q85'
+
+
+def test_compress_bytes_dispatches_to_gif_entry(monkeypatch, tmp_path):
+    service = CompressionService()
+    payload = build_image_bytes('GIF')
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.setattr('app.services.compress.settings.data_dir', tmp_path)
+    for directory in ('uploads', 'output', 'tmp'):
+        (tmp_path / directory).mkdir(parents=True, exist_ok=True)
+
+    def fake_entry(file_name: str, entry_payload: bytes, *_args, **_kwargs):
+        calls.append((file_name, 'gif'))
+        return service.assessment_type(candidate=service.candidate_type(algorithm='gif-optimized', payload=b'gif-result'), ssim=0.98, psnr=38.0)
+
+    monkeypatch.setattr(service, '_compress_gif', fake_entry)
+    monkeypatch.setattr(service, '_compress_jpeg', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected jpeg entry')))
+    monkeypatch.setattr(service, '_compress_png', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected png entry')))
+    monkeypatch.setattr(service, '_compress_webp', lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError('unexpected webp entry')))
+
+    item = service.compress_bytes('anim.gif', payload)
+
+    assert calls == [('anim.gif', 'gif')]
+    assert item.algorithm == 'gif-optimized'
 
 
 def test_choose_candidate_prefers_threshold_passing_result(monkeypatch):
@@ -91,21 +186,95 @@ def test_choose_candidate_returns_original_when_compressed_is_larger(monkeypatch
     assert chosen.candidate.algorithm == 'passthrough'
 
 
-def test_build_png_candidates_uses_color_safe_defaults(monkeypatch):
+def test_build_png_candidates_uses_visual_lossless_defaults(monkeypatch):
     service = CompressionService()
     payload = build_image_bytes('PNG')
 
+    monkeypatch.setattr('app.services.compress.settings.compression_profile', 'visual-lossless', raising=False)
     monkeypatch.setattr(service, '_compress_with_command', lambda *args, **kwargs: b'command-result')
     monkeypatch.setattr(service, '_compress_raster', lambda *args, **kwargs: b'pillow-png')
-    monkeypatch.setattr(service, '_compress_webp', lambda *args, **kwargs: b'lossless-webp')
 
     candidates = service._build_png_candidates('demo.png', payload, ['pngquant', 'zopflipng'])
     algorithms = [candidate.algorithm for candidate in candidates]
 
-    assert 'pngquant-72-92' not in algorithms
-    assert 'pngquant-60-85' not in algorithms
+    assert 'pngquant-85-98' in algorithms
+    assert 'zopflipng-i15' not in algorithms
+    assert 'zopflipng-i50' not in algorithms
+    assert 'png-pillow-optimize' in algorithms
+
+
+def test_build_png_candidates_safe_mode_skips_pngquant_and_limits_zopflipng(monkeypatch):
+    service = CompressionService()
+    payload = build_image_bytes('PNG')
+
+    monkeypatch.setattr('app.services.compress.settings.compression_profile', 'safe', raising=False)
+    monkeypatch.setattr(service, '_compress_with_command', lambda *args, **kwargs: b'command-result')
+    monkeypatch.setattr(service, '_compress_raster', lambda *args, **kwargs: b'pillow-png')
+
+    candidates = service._build_png_candidates('demo.png', payload, ['pngquant', 'zopflipng'])
+    algorithms = [candidate.algorithm for candidate in candidates]
+
+    assert 'pngquant-85-98' not in algorithms
     assert 'zopflipng-i15' in algorithms
-    assert 'png-webp-lossless' not in algorithms
+    assert 'zopflipng-i50' not in algorithms
+
+
+def test_build_webp_candidates_visual_lossless_adds_lossless_and_near_lossless(monkeypatch):
+    service = CompressionService()
+    payload = build_image_bytes('WEBP')
+
+    monkeypatch.setattr('app.services.compress.settings.compression_profile', 'visual-lossless', raising=False)
+    monkeypatch.setattr(service, '_compress_with_command', lambda *args, **kwargs: b'command-result')
+    monkeypatch.setattr(service, '_encode_webp', lambda *args, **kwargs: b'pillow-webp')
+
+    candidates = service._build_webp_candidates(payload, ['cwebp'])
+    algorithms = [candidate.algorithm for candidate in candidates]
+
+    assert 'cwebp-lossless' in algorithms
+    assert 'cwebp-near-lossless-80' in algorithms
+    assert 'cwebp-q90' in algorithms
+
+
+def test_build_jpeg_candidates_visual_lossless_uses_high_quality_ladder(monkeypatch):
+    service = CompressionService()
+    payload = build_image_bytes('JPEG')
+
+    monkeypatch.setattr('app.services.compress.settings.compression_profile', 'visual-lossless', raising=False)
+    monkeypatch.setattr(service, '_compress_with_command', lambda *args, **kwargs: b'jpeg-command')
+    monkeypatch.setattr(service, '_compress_raster', lambda *args, **kwargs: b'jpeg-pillow')
+
+    candidates = service._build_jpeg_candidates('demo.jpg', payload, ['jpegtran', 'cjpeg'])
+    algorithms = [candidate.algorithm for candidate in candidates]
+
+    assert 'mozjpeg-cjpeg-q96' in algorithms
+    assert 'mozjpeg-cjpeg-q92' in algorithms
+    assert 'jpeg-pillow-q96' in algorithms
+
+
+def test_build_gif_candidates_visual_lossless_keeps_light_lossy_option(monkeypatch):
+    service = CompressionService()
+    payload = build_image_bytes('GIF')
+
+    monkeypatch.setattr('app.services.compress.settings.compression_profile', 'visual-lossless', raising=False)
+
+    def fake_compress(command: str, payload: bytes, quality, source_suffix: str) -> bytes:
+        if command != 'gifsicle':
+            raise AssertionError(f'unexpected command: {command}')
+        if quality == 2:
+            return b'gifsicle-o2'
+        if quality == 3:
+            return b'gifsicle-o3'
+        if quality == (3, 20):
+            return b'gifsicle-o3-lossy20'
+        raise AssertionError(f'unexpected quality: {quality!r}')
+
+    monkeypatch.setattr(service, '_compress_with_command', fake_compress)
+    monkeypatch.setattr(service, '_encode_gif', lambda payload: b'gif-pillow')
+
+    candidates = service._build_gif_candidates(payload, ['gifsicle'])
+    algorithms = [candidate.algorithm for candidate in candidates]
+
+    assert algorithms == ['gifsicle-o2', 'gifsicle-o3', 'gifsicle-o3-lossy20', 'gif-optimized']
 
 
 def test_compress_png_keeps_png_extension_and_mime(monkeypatch, tmp_path):
@@ -118,16 +287,12 @@ def test_compress_png_keeps_png_extension_and_mime(monkeypatch, tmp_path):
 
     monkeypatch.setattr(
         service,
-        '_build_candidates',
-        lambda file_name, payload, suffix: [
-            service.candidate_type(algorithm='passthrough', payload=payload),
-            service.candidate_type(algorithm='png-pillow-optimize', payload=b'png-result'),
-        ],
-    )
-    monkeypatch.setattr(
-        service,
-        '_choose_candidate',
-        lambda original, candidates: service.assessment_type(candidate=candidates[1], ssim=1.0, psnr=99.0),
+        '_compress_png',
+        lambda file_name, payload, *_args, **_kwargs: service.assessment_type(
+            candidate=service.candidate_type(algorithm='png-pillow-optimize', payload=b'png-result'),
+            ssim=1.0,
+            psnr=99.0,
+        ),
     )
 
     item = service.compress_bytes('demo.png', payload)
@@ -153,24 +318,26 @@ def test_build_gif_candidates_adds_lossy_gifsicle_variant(monkeypatch):
     service = CompressionService()
     payload = build_image_bytes('GIF')
 
+    monkeypatch.setattr('app.services.compress.settings.compression_profile', 'aggressive', raising=False)
+
     def fake_compress(command: str, payload: bytes, quality, source_suffix: str) -> bytes:
         if command != 'gifsicle':
             raise AssertionError(f'unexpected command: {command}')
-        if quality == 2:
-            return b'gifsicle-o2'
         if quality == 3:
             return b'gifsicle-o3'
         if quality == (3, 30):
             return b'gifsicle-o3-lossy30'
+        if quality == (3, 60):
+            return b'gifsicle-o3-lossy60'
         raise AssertionError(f'unexpected quality: {quality!r}')
 
     monkeypatch.setattr(service, '_compress_with_command', fake_compress)
-    monkeypatch.setattr(service, '_compress_gif', lambda payload: b'gif-pillow')
+    monkeypatch.setattr(service, '_encode_gif', lambda payload: b'gif-pillow')
 
     candidates = service._build_gif_candidates(payload, ['gifsicle'])
     algorithms = [candidate.algorithm for candidate in candidates]
 
-    assert algorithms == ['gifsicle-o2', 'gifsicle-o3', 'gifsicle-o3-lossy30', 'gif-optimized']
+    assert algorithms == ['gifsicle-o3', 'gifsicle-o3-lossy30', 'gifsicle-o3-lossy60', 'gif-optimized']
 
 
 def test_build_command_line_supports_gifsicle_lossy_tuple():
@@ -198,6 +365,7 @@ def test_choose_candidate_accepts_gifsicle_lossy_variant_with_relaxed_gif_thresh
         lossy.payload: (0.9569, 36.7),
     }
 
+    monkeypatch.setattr('app.services.compress.settings.compression_profile', 'aggressive', raising=False)
     monkeypatch.setattr('app.services.compress.compute_metrics', lambda _orig, payload: metrics_map[payload])
     monkeypatch.setattr('app.services.compress.settings.ssim_threshold', 0.985)
     monkeypatch.setattr('app.services.compress.settings.psnr_threshold', 40.0)
@@ -240,8 +408,12 @@ def test_compress_bytes_sanitizes_uploaded_filename(monkeypatch, tmp_path):
 
     monkeypatch.setattr(
         service,
-        '_build_candidates',
-        lambda file_name, payload, suffix: [service.candidate_type(algorithm='passthrough', payload=payload)],
+        '_compress_gif',
+        lambda file_name, payload, *_args, **_kwargs: service.assessment_type(
+            candidate=service.candidate_type(algorithm='passthrough', payload=payload),
+            ssim=1.0,
+            psnr=99.0,
+        ),
     )
 
     item = service.compress_bytes('../../escape.gif', payload)
