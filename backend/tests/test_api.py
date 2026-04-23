@@ -66,6 +66,57 @@ def test_compress_endpoint_accepts_batch_upload():
     assert payload['items'][0]['metrics']['ssim'] >= 0
 
 
+def test_compress_stream_endpoint_allows_larger_gif_than_generic_limit(monkeypatch):
+    big_gif = b'0' * (25 * 1024 * 1024)
+
+    monkeypatch.setattr(routes.settings, 'max_file_size_mb', 20)
+    monkeypatch.setattr(routes.settings, 'max_gif_file_size_mb', 80)
+
+    def fake_compress_bytes(file_name: str, payload: bytes, progress_callback=None):
+        return CompressionItem(
+            file_name=file_name,
+            original_size=len(payload),
+            compressed_size=len(payload) - 1024,
+            original_url=f'/api/files/{file_name}?kind=upload',
+            compressed_url=f'/api/files/{file_name}?kind=output',
+            mime_type='image/gif',
+            status='completed',
+            algorithm='gifsicle-o3-lossy20',
+            metrics=CompressionMetrics(compression_ratio=1.0, ssim=0.99, psnr=40.0),
+        )
+
+    monkeypatch.setattr(routes.compression_service, 'compress_bytes', fake_compress_bytes)
+
+    with client.stream(
+        'POST',
+        '/api/compress/stream',
+        files=[('files', ('oversized.gif', big_gif, 'image/gif'))],
+        data={'parallelism': '1'},
+    ) as response:
+        assert response.status_code == 200
+        events = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert events[-1]['type'] == 'result'
+    assert events[-1]['item']['file_name'] == 'oversized.gif'
+
+
+
+def test_compress_stream_endpoint_keeps_generic_limit_for_non_gif(monkeypatch):
+    big_png = b'0' * (25 * 1024 * 1024)
+
+    monkeypatch.setattr(routes.settings, 'max_file_size_mb', 20)
+    monkeypatch.setattr(routes.settings, 'max_gif_file_size_mb', 80)
+
+    response = client.post(
+        '/api/compress/stream',
+        files=[('files', ('oversized.png', big_png, 'image/png'))],
+        data={'parallelism': '1'},
+    )
+
+    assert response.status_code == 400
+    assert response.json()['detail'] == 'File too large: oversized.png'
+
+
 def test_compress_stream_endpoint_emits_logs_and_final_result(monkeypatch):
     png_bytes = build_png_bytes()
 
@@ -105,6 +156,38 @@ def test_compress_stream_endpoint_emits_logs_and_final_result(monkeypatch):
     assert events[1]['spend_time_ms'] >= 0
     assert events[-1]['type'] == 'result'
     assert events[-1]['item']['algorithm'] == 'pngquant-85-98'
+
+
+
+def test_compress_endpoint_allows_larger_gif_than_generic_limit(monkeypatch):
+    big_gif = b'0' * (25 * 1024 * 1024)
+
+    monkeypatch.setattr(routes.settings, 'max_file_size_mb', 20)
+    monkeypatch.setattr(routes.settings, 'max_gif_file_size_mb', 80)
+
+    def fake_compress_bytes(file_name: str, payload: bytes, progress_callback=None):
+        return CompressionItem(
+            file_name=file_name,
+            original_size=len(payload),
+            compressed_size=len(payload) - 1024,
+            original_url=f'/api/files/{file_name}?kind=upload',
+            compressed_url=f'/api/files/{file_name}?kind=output',
+            mime_type='image/gif',
+            status='completed',
+            algorithm='gifsicle-o3-lossy20',
+            metrics=CompressionMetrics(compression_ratio=1.0, ssim=0.99, psnr=40.0),
+        )
+
+    monkeypatch.setattr(routes.compression_service, 'compress_bytes', fake_compress_bytes)
+
+    response = client.post(
+        '/api/compress',
+        files=[('files', ('oversized.gif', big_gif, 'image/gif'))],
+        data={'parallelism': '1'},
+    )
+
+    assert response.status_code == 200
+    assert response.json()['items'][0]['file_name'] == 'oversized.gif'
 
 
 def test_download_zip_endpoint_returns_compressed_images_archive():

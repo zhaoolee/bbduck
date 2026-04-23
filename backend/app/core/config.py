@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     allowed_formats: str = 'jpg,jpeg,png,webp,gif'
     max_files: int = 30
     max_file_size_mb: int = 20
+    max_gif_file_size_mb: int = 80
     default_parallel_uploads: int = 6
     max_parallel_uploads: int = 10
     compression_profile: Literal['safe', 'visual-lossless', 'aggressive'] = 'visual-lossless'

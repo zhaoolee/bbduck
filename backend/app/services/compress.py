@@ -499,13 +499,16 @@ class CompressionService:
                     )
                 )
 
-        tasks.append(
-            CandidateTask(
-                algorithm='gif-optimized',
-                start_message='开始生成候选 gif-optimized…',
-                build=lambda: self._encode_gif(payload),
+        if 'gifsicle' not in tools:
+            tasks.append(
+                CandidateTask(
+                    algorithm='gif-optimized',
+                    start_message='开始生成候选 gif-optimized…',
+                    build=lambda: self._encode_gif(payload),
+                )
             )
-        )
+        else:
+            self._emit_progress(progress_callback, 'candidate', '检测到 gifsicle，跳过高内存的 Pillow GIF 重编码兜底')
         return self._run_candidate_tasks(tasks, progress_callback)
 
     def _compress_with_command(

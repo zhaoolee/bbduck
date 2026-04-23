@@ -52,6 +52,11 @@ def _dedupe_archive_name(name: str, used_names: set[str]) -> str:
         index += 1
 
 
+def _max_bytes_for_suffix(suffix: str) -> int:
+    limit_mb = settings.max_gif_file_size_mb if suffix == 'gif' else settings.max_file_size_mb
+    return limit_mb * 1024 * 1024
+
+
 async def _compress_prepared_uploads(prepared_uploads: list[tuple[str, bytes]], parallelism: int) -> list[CompressionItem]:
     semaphore = asyncio.Semaphore(parallelism)
 
@@ -146,7 +151,7 @@ async def compress(
             raise HTTPException(status_code=400, detail=f'Unsupported format: {suffix}')
 
         payload = await upload.read()
-        max_bytes = settings.max_file_size_mb * 1024 * 1024
+        max_bytes = _max_bytes_for_suffix(suffix)
         if len(payload) > max_bytes:
             raise HTTPException(status_code=400, detail=f'File too large: {upload.filename}')
         prepared_uploads.append((upload.filename or 'upload.bin', payload))
@@ -175,7 +180,7 @@ async def compress_stream(
         raise HTTPException(status_code=400, detail=f'Unsupported format: {suffix}')
 
     payload = await upload.read()
-    max_bytes = settings.max_file_size_mb * 1024 * 1024
+    max_bytes = _max_bytes_for_suffix(suffix)
     if len(payload) > max_bytes:
         raise HTTPException(status_code=400, detail=f'File too large: {upload.filename}')
 

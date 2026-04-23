@@ -251,7 +251,7 @@ def test_build_jpeg_candidates_visual_lossless_uses_high_quality_ladder(monkeypa
     assert 'jpeg-pillow-q96' in algorithms
 
 
-def test_build_gif_candidates_visual_lossless_keeps_light_lossy_option(monkeypatch):
+def test_build_gif_candidates_visual_lossless_prefers_gifsicle_without_pillow_fallback(monkeypatch):
     service = CompressionService()
     payload = build_image_bytes('GIF')
 
@@ -269,12 +269,23 @@ def test_build_gif_candidates_visual_lossless_keeps_light_lossy_option(monkeypat
         raise AssertionError(f'unexpected quality: {quality!r}')
 
     monkeypatch.setattr(service, '_compress_with_command', fake_compress)
-    monkeypatch.setattr(service, '_encode_gif', lambda payload: b'gif-pillow')
+    monkeypatch.setattr(service, '_encode_gif', lambda payload: (_ for _ in ()).throw(AssertionError('unexpected Pillow fallback')))
 
     candidates = service._build_gif_candidates(payload, ['gifsicle'])
     algorithms = [candidate.algorithm for candidate in candidates]
 
-    assert algorithms == ['gifsicle-o2', 'gifsicle-o3', 'gifsicle-o3-lossy20', 'gif-optimized']
+    assert algorithms == ['gifsicle-o2', 'gifsicle-o3', 'gifsicle-o3-lossy20']
+
+
+def test_build_gif_candidates_without_gifsicle_keeps_pillow_fallback(monkeypatch):
+    service = CompressionService()
+    payload = build_image_bytes('GIF')
+
+    monkeypatch.setattr(service, '_encode_gif', lambda payload: b'gif-pillow')
+
+    candidates = service._build_gif_candidates(payload, [])
+
+    assert [candidate.algorithm for candidate in candidates] == ['gif-optimized']
 
 
 def test_compress_png_keeps_png_extension_and_mime(monkeypatch, tmp_path):
@@ -332,12 +343,12 @@ def test_build_gif_candidates_adds_lossy_gifsicle_variant(monkeypatch):
         raise AssertionError(f'unexpected quality: {quality!r}')
 
     monkeypatch.setattr(service, '_compress_with_command', fake_compress)
-    monkeypatch.setattr(service, '_encode_gif', lambda payload: b'gif-pillow')
+    monkeypatch.setattr(service, '_encode_gif', lambda payload: (_ for _ in ()).throw(AssertionError('unexpected Pillow fallback')))
 
     candidates = service._build_gif_candidates(payload, ['gifsicle'])
     algorithms = [candidate.algorithm for candidate in candidates]
 
-    assert algorithms == ['gifsicle-o3', 'gifsicle-o3-lossy30', 'gifsicle-o3-lossy60', 'gif-optimized']
+    assert algorithms == ['gifsicle-o3', 'gifsicle-o3-lossy30', 'gifsicle-o3-lossy60']
 
 
 def test_build_command_line_supports_gifsicle_lossy_tuple():
