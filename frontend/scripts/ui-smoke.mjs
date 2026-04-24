@@ -29,21 +29,23 @@ try {
     throw new Error('Legacy standalone compression effect card still visible')
   }
 
-  const queueCountBox = await page.getByText('1 个队列项', { exact: true }).boundingBox()
-  const batchZipButton = page.getByRole('button', { name: '批量下载压缩图' })
-  const batchZipButtonCount = await batchZipButton.count()
-  if (batchZipButtonCount === 0) {
-    throw new Error('Expected 批量下载压缩图 button in queue header')
+  const queueCountBox = await page.getByText(/\d+ 个队列项/).boundingBox()
+  if (!queueCountBox) {
+    throw new Error('Expected packaged evaluation queue count before real uploads')
   }
-  const batchZipButtonBox = await batchZipButton.boundingBox()
-  if (!queueCountBox || !batchZipButtonBox || queueCountBox.x >= batchZipButtonBox.x) {
-    throw new Error(`Expected queue count on the left and batch ZIP button on the right, got ${JSON.stringify({ queueCountBox, batchZipButtonBox })}`)
+  const preUploadBatchZipButtonCount = await page.getByRole('button', { name: '批量下载压缩图' }).count()
+  if (preUploadBatchZipButtonCount > 0) {
+    throw new Error('Batch ZIP button should only appear after real uploads')
   }
 
-  const demoCard = page.getByRole('button', { name: /example\.png/ })
+  const demoCard = page.getByRole('button', { name: /00001\.png/ })
   const demoQueueItemCount = await demoCard.count()
   if (demoQueueItemCount === 0) {
-    throw new Error('Expected demo queue item missing before real uploads')
+    throw new Error('Expected packaged evaluation queue item missing before real uploads')
+  }
+
+  if (await page.getByText('example.png', { exact: true }).count()) {
+    throw new Error('example.png should not be visible before real uploads when evaluation images are available')
   }
 
   const demoCardBox = await demoCard.boundingBox()

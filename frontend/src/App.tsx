@@ -1,5 +1,8 @@
 import { ChangeEvent, DragEvent, PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 
+import { resolveDefaultShowcaseState } from './defaultShowcaseState.js'
+import { extractImageFiles, extractImageFilesFromDataTransfer } from './fileDrop.js'
+
 type CompressionItem = {
   file_name: string
   original_size: number
@@ -28,6 +31,8 @@ type QueueItem = {
   sourceFile?: File
   result?: CompressionItem
 }
+
+type EvaluationStatus = 'loading' | 'ready' | 'unavailable'
 
 function formatSpendTimeMs(spendTimeMs?: number) {
   if (spendTimeMs === undefined || Number.isNaN(spendTimeMs) || spendTimeMs < 0) return ''
@@ -151,25 +156,31 @@ function buildQueueItem(file: File, index: number): QueueItem {
   }
 }
 
-const defaultDemoQueueItem: QueueItem = {
+function buildShowcaseQueueItem(result: CompressionItem, options?: { id?: string; detail?: string; log?: string }): QueueItem {
+  const detail = options?.detail ?? '默认示例图，可直接查看压缩前后效果'
+  const log = options?.log ?? '示例结果已就绪，可拖动查看压缩前后对比'
+  return {
+    id: options?.id ?? `showcase-${result.file_name}`,
+    fileName: result.file_name,
+    status: 'completed',
+    progress: 100,
+    detail,
+    logs: [log],
+    result,
+  }
+}
+
+function buildEvaluationQueueItem(result: CompressionItem, index: number): QueueItem {
+  return buildShowcaseQueueItem(result, {
+    id: `evaluation-${index}-${result.file_name}`,
+    detail: '默认展示图已就绪，可点击展开查看',
+    log: '默认展示图已就绪，可点击展开查看压缩前后对比',
+  })
+}
+
+const defaultDemoQueueItem: QueueItem = buildShowcaseQueueItem(defaultDemoItem, {
   id: 'demo-queue-item',
-  fileName: defaultDemoItem.file_name,
-  status: 'completed',
-  progress: 100,
-  detail: '默认示例图，可直接查看压缩前后效果',
-  logs: ['示例结果已就绪，可拖动查看压缩前后对比'],
-  result: defaultDemoItem,
-}
-
-function isImageFile(file: File) {
-  if (file.type.startsWith('image/')) return true
-  const suffix = file.name.split('.').pop()?.toLowerCase()
-  return ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(suffix ?? '')
-}
-
-function extractImageFiles(fileList: FileList | File[]) {
-  return Array.from(fileList).filter(isImageFile)
-}
+})
 
 function hasFileTransfer(event: DragEvent<HTMLElement> | globalThis.DragEvent) {
   const dataTransfer = event.dataTransfer
@@ -466,10 +477,12 @@ function clampQueueConcurrency(value: number) {
 
 export default function App() {
   const [items, setItems] = useState<CompressionItem[]>([])
+  const [defaultQueueItems, setDefaultQueueItems] = useState<QueueItem[]>([])
   const [queueItems, setQueueItems] = useState<QueueItem[]>([])
+  const [evaluationStatus, setEvaluationStatus] = useState<EvaluationStatus>('loading')
   const [pending, setPending] = useState(false)
-  const [expandedQueueId, setExpandedQueueId] = useState(defaultDemoQueueItem.id)
-  const [compareSliders, setCompareSliders] = useState<Record<string, number>>({ [defaultDemoQueueItem.id]: 50 })
+  const [expandedQueueId, setExpandedQueueId] = useState('')
+  const [compareSliders, setCompareSliders] = useState<Record<string, number>>({})
   const [dragActive, setDragActive] = useState(false)
   const [downloadingZip, setDownloadingZip] = useState(false)
   const [appendNotice, setAppendNotice] = useState('')
@@ -490,7 +503,12 @@ export default function App() {
   const appendNoticeTimerRef = useRef<number | undefined>(undefined)
 
   const hasUploads = items.length > 0
-  const visibleQueueItems = queueItems.length > 0 ? queueItems : [defaultDemoQueueItem]
+  const { visibleQueueItems, showEvaluationLoading } = resolveDefaultShowcaseState({
+    queueItems,
+    defaultQueueItems,
+    defaultDemoQueueItem,
+    evaluationStatus,
+  })
   const completedQueueCount = visibleQueueItems.filter((item) => item.status === 'completed' || item.status === 'skipped').length
   const currentQueueItem = visibleQueueItems.find((item) => item.status === 'uploading' || item.status === 'processing') ?? visibleQueueItems[0]
   const overallQueueProgress = visibleQueueItems.length
@@ -506,7 +524,9 @@ export default function App() {
     : 0
   const completionSummary = summaryResults.length > 0
     ? `共压缩 ${summaryResults.length} 个文件, 节省空间 ${totalSavedPercent}% (${formatCompactSize(totalOriginalSize)} → ${formatCompactSize(totalCompressedSize)})`
-    : ''
+    : showEvaluationLoading
+      ? '正在加载默认示例'
+      : ''
 
   useEffect(() => {
     window.localStorage.setItem(SHOW_COMPRESSION_LOGS_STORAGE_KEY, String(showCompressionLogs))
@@ -527,8 +547,8 @@ export default function App() {
       event.preventDefault()
       dragDepthRef.current = 0
       setDragActive(false)
-      if (event.dataTransfer?.files?.length) {
-        void submitFiles(event.dataTransfer.files)
+      if (event.dataTransfer) {
+        void handleDataTransferDrop(event.dataTransfer)
       }
     }
 
@@ -537,6 +557,72 @@ export default function App() {
     return () => {
       window.removeEventListener('dragover', preventBrowserOpen)
       window.removeEventListener('drop', handleWindowDrop)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const selectFallbackDemo = () => {
+      setExpandedQueueId((current) => {
+        if (queueItemsRef.current.length > 0) return current
+        if (!current || current === defaultDemoQueueItem.id || current.startsWith('evaluation-')) {
+          return defaultDemoQueueItem.id
+        }
+        return current
+      })
+    }
+
+    async function loadEvaluationImages() {
+      setEvaluationStatus('loading')
+      try {
+        const response = await fetch('/api/evaluation-images')
+        if (!response.ok) {
+          if (!cancelled) {
+            setDefaultQueueItems([])
+            setEvaluationStatus('unavailable')
+            selectFallbackDemo()
+          }
+          return
+        }
+
+        const payload = await response.json() as { items?: CompressionItem[] }
+        if (cancelled) return
+        if (!Array.isArray(payload.items) || payload.items.length === 0) {
+          setDefaultQueueItems([])
+          setEvaluationStatus('unavailable')
+          selectFallbackDemo()
+          return
+        }
+
+        const nextDefaultQueueItems = payload.items.map(buildEvaluationQueueItem)
+        setDefaultQueueItems(nextDefaultQueueItems)
+        setEvaluationStatus('ready')
+        setCompareSliders((current) => {
+          const next = { ...current }
+          for (const item of nextDefaultQueueItems) {
+            next[item.id] = next[item.id] ?? 50
+          }
+          return next
+        })
+        setExpandedQueueId((current) => {
+          if (queueItemsRef.current.length > 0) return current
+          if (!current || current === defaultDemoQueueItem.id || current.startsWith('evaluation-')) {
+            return nextDefaultQueueItems[0]?.id ?? current
+          }
+          return current
+        })
+      } catch {
+        if (cancelled) return
+        setDefaultQueueItems([])
+        setEvaluationStatus('unavailable')
+        selectFallbackDemo()
+      }
+    }
+
+    void loadEvaluationImages()
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -628,7 +714,7 @@ export default function App() {
     const nextQueue = files.map((file, index) => buildQueueItem(file, index))
     const isAppending = queueItemsRef.current.length > 0 || activeWorkersRef.current > 0
     setPending(true)
-    setExpandedQueueId((current) => (current === defaultDemoQueueItem.id || !current ? (nextQueue[0]?.id ?? current) : current))
+    setExpandedQueueId((current) => (queueItemsRef.current.length === 0 ? (nextQueue[0]?.id ?? current) : current))
     setQueueItems((current) => [...current, ...nextQueue])
     setCompareSliders((current) => ({ ...current }))
     if (appendNoticeTimerRef.current !== undefined) {
@@ -642,6 +728,16 @@ export default function App() {
     window.requestAnimationFrame(() => {
       queueSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     })
+  }
+
+  async function handleDataTransferDrop(dataTransfer: DataTransfer) {
+    try {
+      const files = await extractImageFilesFromDataTransfer(dataTransfer)
+      await submitFiles(files)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '读取拖拽内容失败'
+      alert(message)
+    }
   }
 
   function onInputChange(event: ChangeEvent<HTMLInputElement>) {
@@ -769,7 +865,7 @@ export default function App() {
       <header className="page-topbar">
         <div className="page-topbar-inner">
           <div className="page-topbar-brand">
-            <img className="page-topbar-logo" src="/bbduck-logo.jpg" alt="BB鸭 logo" />
+            <img className="page-topbar-logo" src="/bbduck-logo.png" alt="BB鸭 logo" />
             <div className="page-topbar-copy">
               <strong className="page-topbar-title">BB鸭 给图片减减肥 让画质顶呱呱</strong>
             </div>
@@ -856,11 +952,19 @@ export default function App() {
           <span>
             {pending
               ? `进行中 · ${completedQueueCount}/${visibleQueueItems.length} 已完成`
-              : `${visibleQueueItems.length} 个队列项`}
+              : showEvaluationLoading
+                ? '正在加载默认示例'
+                : `${visibleQueueItems.length} 个队列项`}
           </span>
         </div>
 
         <div className="result-list">
+          {showEvaluationLoading ? (
+            <article className="empty-state result-list-status" aria-live="polite">
+              <strong>正在加载默认示例</strong>
+              <span>首页评测图准备完成后会自动展示。</span>
+            </article>
+          ) : null}
           {visibleQueueItems.map((queueItem) => {
             const result = queueItem.result
             const isExpanded = Boolean(result) && expandedQueueId === queueItem.id
@@ -946,7 +1050,7 @@ export default function App() {
       <div className="page-bottom-progress" aria-live="polite">
         <div className="page-bottom-progress-inner">
           <div className="page-bottom-progress-head">
-            <strong>{pending ? '正在处理压缩队列' : '压缩完成'}</strong>
+            <strong>{pending ? '正在处理压缩队列' : showEvaluationLoading ? '默认示例准备中' : '压缩完成'}</strong>
             <span>
               {pending
                 ? (queueItems.length > 0

@@ -219,3 +219,75 @@ curl -s -X POST \
 2. 完善真实压缩策略与回退逻辑
 3. 为前端对比组件加入拖动蒙版与缩放
 4. 增加任务队列、缓存、限流与历史记录
+
+
+
+## 首页默认评价图片
+
+首页在用户未上传图片时，会优先请求后端 `GET /api/evaluation-images` 作为默认展示队列。
+前端会优先展示已打包的首页评测图；只有接口失败或确认没有评测图时，才会回退到内置 `example` 示例。
+
+默认目录：
+
+```text
+backend/data/evaluation-images
+backend/data/evaluation-compressed
+```
+
+`backend/data/evaluation-images` 存放原图，`backend/data/evaluation-compressed` 存放对应的已打包压缩图；两个目录都会随 Docker 镜像一起打包。
+
+Docker Compose 开发模式会自动启动 `evaluation-watcher` 服务，监听原图目录变化并自动刷新打包压缩图：
+
+```bash
+docker compose up --build
+```
+
+开发时把图片放进 `backend/data/evaluation-images`，新增、删除、修改后都会自动重新生成 `backend/data/evaluation-compressed`，不需要手动重启后端。
+
+如果用 `docker run` 跑生产镜像，可以这样挂载：
+
+```bash
+docker run -d --rm --name bbduck -p 28642:8000 \
+  -v /absolute/path/to/evaluation-images:/app/data/evaluation-images \
+  -v /absolute/path/to/evaluation-compressed:/app/data/evaluation-compressed \
+  zhaoolee/bbduck:latest
+```
+
+可通过环境变量覆盖：
+
+```bash
+BBDUCK_EVALUATION_IMAGES_DIR=/absolute/path/to/evaluation-images
+BBDUCK_EVALUATION_COMPRESSED_DIR=/absolute/path/to/evaluation-compressed
+```
+
+把原图按文件名编号放进去即可，例如：
+
+```text
+backend/data/evaluation-images/00001.jpg
+backend/data/evaluation-images/00002.png
+backend/data/evaluation-images/00003.gif
+backend/data/evaluation-images/00004.webp
+```
+
+对应的打包压缩图放在：
+
+```text
+backend/data/evaluation-compressed/00001.webp
+backend/data/evaluation-compressed/00002.png
+backend/data/evaluation-compressed/00003.gif
+backend/data/evaluation-compressed/00004.webp
+```
+
+支持格式：`jpg`、`jpeg`、`png`、`gif`、`webp`。程序会忽略其他文件、目录和隐藏文件，并按文件名中的编号自然升序展示。接口会优先匹配同 stem 的打包压缩图，例如 `00001.png` 会优先查找 `backend/data/evaluation-compressed/00001.*`，其次查找 `00001.compressed.*`，并通过安全静态接口 `/api/evaluation-compressed/{file_name}` 返回。只有对应打包压缩图缺失时，才会退回运行时压缩兜底。
+
+非 Docker 本地运行可直接启动 watcher：
+
+```bash
+PYTHONPATH=backend .venv/bin/python backend/scripts/watch_evaluation_assets.py
+```
+
+如果只想手动构建一次，也可以继续使用：
+
+```bash
+PYTHONPATH=backend .venv/bin/python backend/scripts/build_evaluation_assets.py
+```

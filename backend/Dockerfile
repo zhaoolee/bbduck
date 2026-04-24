@@ -15,5 +15,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-RUN mkdir -p /app/data/uploads /app/data/output /app/data/tmp
+RUN mkdir -p /app/data/uploads /app/data/output /app/data/tmp /app/data/evaluation-images /app/data/evaluation-compressed
 EXPOSE 8000

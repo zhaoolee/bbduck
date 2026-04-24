@@ -10,6 +10,9 @@ __pycache__
 .env.*
 backend/.pytest_cache
 backend/__pycache__
-backend/data
+backend/data/uploads
+backend/data/output
+backend/data/tmp
+**/.DS_Store
 frontend/node_modules
 frontend/dist

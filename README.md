@@ -1,8 +1,10 @@
 # BBDuck
 
-![](./frontend/public/bbduck-logo.jpg)
+![](./frontend/public/bbduck-logo.png)
 
 BBDuck 是面向开源社区的图片压缩工具，以“视觉无损优先”为产品亮点，开源版 PP鸭，支持 skill 调用。
+
+![](./README.assets/74c834d486cf06717739fb2859a3c675f47d229b3d2fc3af9ec3b7468c87dcf4.png)
 
 ## 本地部署
 

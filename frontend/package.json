@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
+    "test:file-drop": "node scripts/file-drop.test.mjs",
+    "test:default-showcase": "node scripts/default-showcase-state.test.mjs",
     "test:compare-preview": "node scripts/compare-preview-regression.mjs",
     "test:header": "node scripts/header-regression.mjs"
   },

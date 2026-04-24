@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   backend:
     build:
@@ -9,8 +7,31 @@ services:
     volumes:
       - ./backend:/app
       - backend-data:/app/data
+      - ./backend/data/evaluation-images:/app/data/evaluation-images
+      - ./backend/data/evaluation-compressed:/app/data/evaluation-compressed
     expose:
       - "8000"
+    environment:
+      BBDUCK_APP_NAME: BBDuck Server
+      BBDUCK_ALLOWED_FORMATS: jpg,jpeg,png,webp,gif
+      BBDUCK_MAX_FILES: 30
+      BBDUCK_MAX_FILE_SIZE_MB: 20
+      BBDUCK_COMPRESSION_PROFILE: visual-lossless
+      BBDUCK_MIN_COMPRESSION_SAVING_PERCENT: 1
+      BBDUCK_SSIM_THRESHOLD: 0.985
+      BBDUCK_PSNR_THRESHOLD: 40
+      BBDUCK_FRONTEND_DIST: /app/static
+
+  evaluation-watcher:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: python scripts/watch_evaluation_assets.py
+    volumes:
+      - ./backend:/app
+      - backend-data:/app/data
+      - ./backend/data/evaluation-images:/app/data/evaluation-images
+      - ./backend/data/evaluation-compressed:/app/data/evaluation-compressed
     environment:
       BBDUCK_APP_NAME: BBDuck Server
       BBDUCK_ALLOWED_FORMATS: jpg,jpeg,png,webp,gif
@@ -36,6 +57,7 @@ services:
       VITE_API_PROXY_TARGET: http://backend:8000
     depends_on:
       - backend
+      - evaluation-watcher
 
 volumes:
   backend-data:

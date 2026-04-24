@@ -1115,6 +1115,15 @@ button {
   background: rgba(255, 250, 243, 0.72);
 }
 
+.result-list-status strong,
+.result-list-status span {
+  display: block;
+}
+
+.result-list-status span {
+  margin-top: 6px;
+}
+
 @media (max-width: 1024px) {
   .page-topbar-inner,
   .showcase-header,

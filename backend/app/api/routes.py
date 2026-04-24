@@ -19,6 +19,11 @@ from app.schemas import (
     HealthResponse,
 )
 from app.services.compress import compression_service
+from app.services.evaluation_images import (
+    list_evaluation_images,
+    resolve_evaluation_compressed_image,
+    resolve_evaluation_image,
+)
 
 router = APIRouter()
 
@@ -132,6 +137,21 @@ def config() -> AppConfigResponse:
         ssim_threshold=settings.ssim_threshold,
         psnr_threshold=settings.psnr_threshold,
     )
+
+
+@router.get('/evaluation-images', response_model=CompressionBatchResponse)
+def evaluation_images() -> CompressionBatchResponse:
+    return CompressionBatchResponse(items=list_evaluation_images())
+
+
+@router.get('/evaluation-images/{file_name:path}')
+def read_evaluation_image(file_name: str) -> FileResponse:
+    return FileResponse(resolve_evaluation_image(file_name))
+
+
+@router.get('/evaluation-compressed/{file_name:path}')
+def read_evaluation_compressed_image(file_name: str) -> FileResponse:
+    return FileResponse(resolve_evaluation_compressed_image(file_name))
 
 
 @router.post('/compress', response_model=CompressionBatchResponse)
