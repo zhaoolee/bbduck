@@ -8,12 +8,13 @@
 默认连接本机 Docker 服务：
 
 ```bash
-docker run -d -p 28642:8000 zhaoolee/bbduck:latest
+docker run -d --restart unless-stopped --name bbduck -p 28642:8000 zhaoolee/bbduck:latest
 ```
 
 默认能力：
 - 支持 jpg / png / webp / gif 四种类型图片压缩
 - 支持单张图片压缩调用
+- 支持多张图片批量压缩
 - 支持读取后端流式压缩日志
 - 日志包含每一步的 `spend_time_ms`
 - 默认压缩模式与网页一致：`visual-lossless`
@@ -27,6 +28,7 @@ docker run -d -p 28642:8000 zhaoolee/bbduck:latest
 
 适合的典型需求：
 - “帮我压一张图，但尽量别看出变化”
+- “把这几张图一起压一下”
 - “把压缩过程的每一步日志打出来”
 - “压完后把结果一起打包下载”
 
@@ -38,4 +40,5 @@ cp -a skill/bbduck ~/.hermes/skills/
 安装后，这个 skill 会把 bbduck 服务理解为：
 - 一个默认走 `visual-lossless` 的图片压缩接口
 - 一个支持流式日志的单图压缩工具
+- 一个支持批量图片压缩的接口
 - 一个可用于批量下载压缩结果 ZIP 的辅助接口

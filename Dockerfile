@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./
+RUN mkdir -p /app/data/uploads /app/data/output /app/data/tmp /app/data/evaluation-images /app/data/evaluation-compressed
 COPY --from=frontend-builder /app/frontend/dist ./frontend_dist
 ENV BBDUCK_FRONTEND_DIST=/app/frontend_dist
 EXPOSE 8000

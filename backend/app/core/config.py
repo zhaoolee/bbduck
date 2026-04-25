@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     allowed_formats: str = 'jpg,jpeg,png,webp,gif'
     max_files: int = 30
     max_file_size_mb: int = 20
+    max_gif_file_size_mb: int = 80
     default_parallel_uploads: int = 6
     max_parallel_uploads: int = 10
     compression_profile: Literal['safe', 'visual-lossless', 'aggressive'] = 'visual-lossless'
@@ -29,6 +30,8 @@ class Settings(BaseSettings):
     gif_lossy_psnr_threshold: float = 36.0
     metrics_max_dimension: int = 768
     data_dir: Path = Field(default=DEFAULT_DATA_DIR)
+    evaluation_images_dir: Path = Field(default=DEFAULT_DATA_DIR / 'evaluation-images')
+    evaluation_compressed_dir: Path = Field(default=DEFAULT_DATA_DIR / 'evaluation-compressed')
 
     @property
     def allowed_suffixes(self) -> list[str]:
@@ -48,5 +51,12 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-for directory in (settings.data_dir, settings.upload_dir, settings.output_dir, settings.tmp_dir):
+for directory in (
+    settings.data_dir,
+    settings.upload_dir,
+    settings.output_dir,
+    settings.tmp_dir,
+    settings.evaluation_images_dir,
+    settings.evaluation_compressed_dir,
+):
     directory.mkdir(parents=True, exist_ok=True)

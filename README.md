@@ -1,13 +1,15 @@
 # BBDuck
 
-![](./frontend/public/bbduck-logo.jpg)
+![](./frontend/public/bbduck-logo.png)
 
 BBDuck 是面向开源社区的图片压缩工具，以“视觉无损优先”为产品亮点，开源版 PP鸭，支持 skill 调用。
+
+![](./README.assets/74c834d486cf06717739fb2859a3c675f47d229b3d2fc3af9ec3b7468c87dcf4.png)
 
 ## 本地部署
 
 ```bash
-docker run -d --rm --name bbduck -p 28642:8000 zhaoolee/bbduck:latest
+docker run -d --restart unless-stopped --name bbduck -p 28642:8000 zhaoolee/bbduck:latest
 ```
 
 打开 http://127.0.0.1:28642 即可使用。
@@ -20,7 +22,8 @@ https://clawhub.ai/zhaoolee/bbduck
 可直接在 Hermes 中使用：
 
 ```text
-从clawhub安装 https://clawhub.ai/zhaoolee/bbduck 用来优化本地的图片尺寸
+从clawhub安装 https://clawhub.ai/zhaoolee/bbduck 用来优化本地的图片尺寸, 使用
+https://bbduck.v2fy.com/api/evaluation-images/00001.png 进行测试
 ```
 
 ## 设计目标

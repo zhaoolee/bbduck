@@ -129,7 +129,35 @@ button {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  gap: 10px;
   flex: 0 0 auto;
+}
+
+.page-topbar-github {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: #fff8f0;
+  opacity: 0.9;
+  transition: transform 180ms ease, opacity 180ms ease, color 180ms ease;
+}
+
+.page-topbar-github:hover {
+  color: #ffffff;
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.page-topbar-github:focus-visible {
+  outline: 2px solid rgba(255, 248, 240, 0.82);
+  outline-offset: 2px;
+}
+
+.page-topbar-github svg {
+  width: 22px;
+  height: 22px;
 }
 
 .page-topbar-settings {
@@ -190,19 +218,6 @@ button {
     inset 0 -1px 0 rgba(181, 152, 120, 0.28),
     0 22px 48px rgba(40, 28, 18, 0.22),
     0 6px 14px rgba(40, 28, 18, 0.1);
-}
-
-.settings-modal::before {
-  content: '';
-  position: absolute;
-  top: 10px;
-  left: 16px;
-  right: 16px;
-  height: 18px;
-  border-radius: 12px 12px 8px 8px;
-  background: linear-gradient(180deg, rgba(153, 128, 101, 0.22), rgba(120, 94, 71, 0.1));
-  opacity: 0.72;
-  pointer-events: none;
 }
 
 .settings-modal::after {
@@ -482,6 +497,144 @@ button {
   margin: 0 auto 20px;
 }
 
+.skill-callout {
+  margin-bottom: 10px;
+}
+
+.skill-callout-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 186px;
+  padding: 0 0 0 16px;
+  min-height: 42px;
+  border: 1px solid rgba(214, 202, 183, 0.96);
+  border-radius: 4px;
+  background: rgba(255, 251, 244, 0.96);
+  color: #b39b7e;
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 1px 1px rgba(95, 73, 49, 0.04);
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+}
+
+.skill-callout-toggle:hover {
+  border-color: rgba(204, 188, 164, 0.96);
+  background: rgba(255, 252, 247, 0.98);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 1px 2px rgba(95, 73, 49, 0.06);
+}
+
+.skill-callout-toggle:focus-visible {
+  outline: 2px solid rgba(177, 152, 120, 0.28);
+  outline-offset: 2px;
+}
+
+.skill-callout-toggle > span:first-child {
+  letter-spacing: 0.01em;
+}
+
+.skill-callout-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: 42px;
+  margin-left: 10px;
+  border-left: 1px solid rgba(214, 202, 183, 0.92);
+  transition: transform 180ms ease;
+}
+
+.skill-callout-toggle-icon::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid #b39b7e;
+}
+
+.skill-callout-toggle.is-open .skill-callout-toggle-icon {
+  transform: rotate(180deg);
+}
+
+.skill-callout-panel {
+  margin-top: 10px;
+}
+
+.skill-callout-code {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 42px 16px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(125, 78, 32, 0.16);
+  background:
+    linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(245, 236, 224, 0.98)),
+    repeating-linear-gradient(180deg, rgba(208, 188, 163, 0.1) 0 1px, transparent 1px 30px);
+  box-shadow: var(--shadow-soft);
+  text-align: left;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.skill-callout-code.is-copied {
+  border-color: rgba(71, 132, 88, 0.34);
+}
+
+.skill-callout-code.is-failed {
+  border-color: rgba(166, 96, 79, 0.34);
+}
+
+.skill-callout-copy-button {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(125, 78, 32, 0.14);
+  background: rgba(255, 251, 245, 0.92);
+  color: #7b6652;
+  font-size: 0.78rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, color 180ms ease;
+}
+
+.skill-callout-copy-button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(125, 78, 32, 0.24);
+  background: rgba(255, 253, 249, 0.98);
+  color: #5f4a37;
+}
+
+.skill-callout-copy-button:focus-visible {
+  outline: 2px solid rgba(161, 109, 54, 0.38);
+  outline-offset: 2px;
+}
+
+.skill-callout-code code {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #4a392b;
+  font-family: 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', monospace;
+  font-size: 0.9rem;
+  line-height: 1.75;
+}
+
+.upload-input {
+  display: none;
+}
+
 .upload-dropzone {
   display: flex;
   flex-direction: column;
@@ -496,6 +649,7 @@ button {
   box-shadow: var(--shadow-soft);
   text-align: center;
   cursor: pointer;
+  outline: none;
   transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
 }
 
@@ -506,8 +660,13 @@ button {
   transform: translateY(-1px);
 }
 
-.upload-dropzone input {
-  display: none;
+.upload-dropzone:focus-visible {
+  border-color: rgba(125, 78, 32, 0.55);
+  background: rgba(255, 247, 236, 0.9);
+  transform: translateY(-1px);
+  box-shadow:
+    var(--shadow-soft),
+    0 0 0 3px rgba(161, 109, 54, 0.12);
 }
 
 .upload-dropzone strong {
@@ -1115,17 +1274,35 @@ button {
   background: rgba(255, 250, 243, 0.72);
 }
 
+.result-list-status strong,
+.result-list-status span {
+  display: block;
+}
+
+.result-list-status span {
+  margin-top: 6px;
+}
+
 @media (max-width: 1024px) {
-  .page-topbar-inner,
   .showcase-header,
   .section-heading {
     flex-direction: column;
     align-items: flex-start;
   }
 
+  .page-topbar-inner {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .page-topbar-brand {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
   .page-topbar-actions {
-    width: 100%;
-    justify-content: flex-start;
+    width: auto;
+    justify-content: flex-end;
   }
 
   .stats-grid {
@@ -1139,22 +1316,27 @@ button {
 
 @media (max-width: 720px) {
   .page-shell {
-    padding: 18px 14px 170px;
+    padding: 0 14px 170px;
   }
 
   .page-topbar {
     margin-bottom: 16px;
-    border-radius: 16px;
+    border-radius: 0;
   }
 
   .page-topbar-inner {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
     min-height: unset;
     padding: 12px 14px;
     gap: 12px;
   }
 
   .page-topbar-brand {
-    width: 100%;
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 0;
     gap: 10px;
   }
 
@@ -1167,7 +1349,7 @@ button {
 
   .page-topbar-title {
     font-size: 0.94rem;
-    white-space: normal;
+    white-space: nowrap;
   }
 
   .page-topbar-subtitle {
@@ -1176,13 +1358,45 @@ button {
 
   .page-topbar-actions,
   .page-topbar-upload {
-    width: 100%;
+    width: auto;
+  }
+
+  .page-topbar-github {
+    width: 26px;
+    height: 26px;
   }
 
   .upload-dropzone {
     min-height: 152px;
     padding: 24px 14px;
     border-radius: 18px;
+  }
+
+  .skill-callout-code {
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+
+  .skill-callout-toggle {
+    min-width: 172px;
+    min-height: 40px;
+    padding-left: 14px;
+    font-size: 0.88rem;
+  }
+
+  .skill-callout-toggle-icon {
+    width: 30px;
+    min-height: 40px;
+    margin-left: 8px;
+  }
+
+  .skill-callout-code {
+    padding-top: 40px;
+  }
+
+  .skill-callout-copy-button {
+    top: 10px;
+    right: 10px;
   }
 
   .hero-block {
@@ -1197,13 +1411,17 @@ button {
   }
 
   .page-bottom-progress {
-    width: calc(100% - 20px);
-    bottom: 10px;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    transform: none;
   }
 
   .page-bottom-progress-inner {
     padding: 12px 13px;
-    border-radius: 16px;
+    border-radius: 0;
+    border-left: 0;
+    border-right: 0;
   }
 
   .page-bottom-progress-head {

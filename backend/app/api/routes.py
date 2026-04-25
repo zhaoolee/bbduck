@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import unquote
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from PIL import UnidentifiedImageError
 
@@ -19,8 +19,16 @@ from app.schemas import (
     HealthResponse,
 )
 from app.services.compress import compression_service
+from app.services.evaluation_images import (
+    list_evaluation_images,
+    resolve_evaluation_compressed_image,
+    resolve_evaluation_image,
+)
 
 router = APIRouter()
+
+_IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
+_REVALIDATED_CACHE_CONTROL = 'public, max-age=0, must-revalidate'
 
 
 class CompressionFailure(Exception):
@@ -50,6 +58,19 @@ def _dedupe_archive_name(name: str, used_names: set[str]) -> str:
             used_names.add(next_candidate)
             return next_candidate
         index += 1
+
+
+def _max_bytes_for_suffix(suffix: str) -> int:
+    limit_mb = settings.max_gif_file_size_mb if suffix == 'gif' else settings.max_file_size_mb
+    return limit_mb * 1024 * 1024
+
+
+def _file_response_with_cache(target: Path, cache_control: str) -> FileResponse:
+    return FileResponse(target, headers={'Cache-Control': cache_control})
+
+
+def _cache_control_for_versioned_request(request: Request) -> str:
+    return _IMMUTABLE_CACHE_CONTROL if request.query_params.get('v') else _REVALIDATED_CACHE_CONTROL
 
 
 async def _compress_prepared_uploads(prepared_uploads: list[tuple[str, bytes]], parallelism: int) -> list[CompressionItem]:
@@ -129,6 +150,21 @@ def config() -> AppConfigResponse:
     )
 
 
+@router.get('/evaluation-images', response_model=CompressionBatchResponse)
+def evaluation_images() -> CompressionBatchResponse:
+    return CompressionBatchResponse(items=list_evaluation_images())
+
+
+@router.get('/evaluation-images/{file_name:path}')
+def read_evaluation_image(file_name: str, request: Request) -> FileResponse:
+    return _file_response_with_cache(resolve_evaluation_image(file_name), _cache_control_for_versioned_request(request))
+
+
+@router.get('/evaluation-compressed/{file_name:path}')
+def read_evaluation_compressed_image(file_name: str, request: Request) -> FileResponse:
+    return _file_response_with_cache(resolve_evaluation_compressed_image(file_name), _cache_control_for_versioned_request(request))
+
+
 @router.post('/compress', response_model=CompressionBatchResponse)
 async def compress(
     files: list[UploadFile] = File(...),
@@ -146,7 +182,7 @@ async def compress(
             raise HTTPException(status_code=400, detail=f'Unsupported format: {suffix}')
 
         payload = await upload.read()
-        max_bytes = settings.max_file_size_mb * 1024 * 1024
+        max_bytes = _max_bytes_for_suffix(suffix)
         if len(payload) > max_bytes:
             raise HTTPException(status_code=400, detail=f'File too large: {upload.filename}')
         prepared_uploads.append((upload.filename or 'upload.bin', payload))
@@ -175,7 +211,7 @@ async def compress_stream(
         raise HTTPException(status_code=400, detail=f'Unsupported format: {suffix}')
 
     payload = await upload.read()
-    max_bytes = settings.max_file_size_mb * 1024 * 1024
+    max_bytes = _max_bytes_for_suffix(suffix)
     if len(payload) > max_bytes:
         raise HTTPException(status_code=400, detail=f'File too large: {upload.filename}')
 
@@ -213,4 +249,4 @@ def read_output_file(file_name: str, kind: str = Query(default='output')) -> Fil
     target = base_dir / file_name
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail='File not found')
-    return FileResponse(target)
+    return _file_response_with_cache(target, _IMMUTABLE_CACHE_CONTROL)

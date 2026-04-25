@@ -1,7 +1,7 @@
 ---
 name: bbduck
-description: 优先做视觉无损压缩的本地图片压缩 skill：压缩单张图片、读取流式压缩日志，并在需要时打包下载结果 ZIP。
-version: 0.2.2
+description: 优先做视觉无损压缩的本地图片压缩 skill：支持单图流式压缩、批量压缩，并在需要时打包下载结果 ZIP。
+version: 0.3.0
 author: Hermes Agent
 license: MIT
 ---
@@ -15,13 +15,14 @@ license: MIT
 - 在网页默认策略下直接走 `visual-lossless`
 - 压缩过程中可以实时读取每一步日志
 - 日志里包含每一步的 `spend_time_ms`
+- 支持一次上传多张图片批量压缩
 - 压缩完成后仍可继续打包下载 ZIP
 
 ## 服务前提
 默认连接本地 Docker 服务：
 
 ```bash
-docker run -d -p 28642:8000 zhaoolee/bbduck:latest
+docker run -d --restart unless-stopped --name bbduck -p 28642:8000 zhaoolee/bbduck:latest
 ```
 
 默认访问地址：
@@ -63,7 +64,16 @@ docker run -d -p 28642:8000 zhaoolee/bbduck:latest
 - 可以拿到每一步的 `spend_time_ms`
 - 最后一条会返回 `result`
 
-### 2. 批量下载压缩结果
+### 2. 批量压缩多张图片
+当用户一次给了多张图片，或明确说“批量压缩”时，使用：
+- `POST /api/compress`
+
+原因：
+- 服务原生支持多文件上传
+- 返回结果顺序与上传顺序一致
+- 适合做批量任务，不需要为每张图单独建立流式连接
+
+### 3. 批量下载压缩结果
 当用户明确要“下载全部压缩图”时，使用：
 - `POST /api/download/outputs.zip`
 
@@ -140,6 +150,20 @@ curl -N -X POST http://127.0.0.1:28642/api/compress/stream \
 }
 ```
 
+## curl 示例：批量压缩
+```bash
+curl -X POST http://127.0.0.1:28642/api/compress \
+  -F 'parallelism=3' \
+  -F 'files=@/absolute/path/to/first.png' \
+  -F 'files=@/absolute/path/to/second.jpg' \
+  -F 'files=@/absolute/path/to/third.gif'
+```
+
+批量模式下：
+- `parallelism` 必须在服务允许范围内，默认可用值参考 `/api/config`
+- 如果用户没有特别要求，优先取较稳妥的并行度，不要盲目拉满
+- 返回结果里的每个 item 都包含 `original_url`、`compressed_url`、`status`、`algorithm`、`metrics`
+
 ## ZIP 下载字段含义
 - `stored_name`: 后端真实保存的文件名，通常从 `compressed_url` 的最后一段提取
 - `download_name`: ZIP 包里给用户看到的文件名
@@ -158,6 +182,12 @@ curl -N -X POST http://127.0.0.1:28642/api/compress/stream \
 3. 调用 `POST /api/download/outputs.zip`
 4. 将返回内容保存为 zip 文件
 
+### 场景 3：用户一次给多张图，想直接压完
+1. 调用 `POST /api/compress`
+2. 用 multipart/form-data 上传多张图片
+3. 结合返回的 `items` 汇总每张图的压缩率、算法和状态
+4. 如果用户要统一拿结果，再调用 ZIP 下载接口
+
 ## 输出时应强调的价值
 在向用户总结结果时，优先突出这些信息：
 - 这次压缩走的是 `visual-lossless`
@@ -170,6 +200,7 @@ curl -N -X POST http://127.0.0.1:28642/api/compress/stream \
 - 默认压缩模式按网页行为处理：`visual-lossless`
 - 当用户要看压缩过程时，优先用 `/api/compress/stream`
 - 当用户只说“压缩一张图片”，也优先用 `/api/compress/stream`，因为它同时给结果和日志
+- 当用户一次给了多张图片，优先用 `/api/compress`
 - 只有在用户明确要“批量下载压缩图”时，才调用 `/api/download/outputs.zip`
 - 不要把 `jpg`、`jpeg`、`png`、`webp`、`gif` 之外的文件交给这个服务
 - 不要把这个 skill 描述成“追求极限画质损失换取极限压缩率”的工具；它的默认卖点是视觉无损优先
