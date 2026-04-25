@@ -291,3 +291,20 @@ PYTHONPATH=backend .venv/bin/python backend/scripts/watch_evaluation_assets.py
 ```bash
 PYTHONPATH=backend .venv/bin/python backend/scripts/build_evaluation_assets.py
 ```
+
+## 设计目标
+
+1. Python 作为主语言，负责压缩编排、质量评估、REST API。
+2. 当前默认压缩模式为 `visual-lossless`，目标是在肉眼几乎看不出差异的前提下尽量缩小体积；当候选收益过低或质量风险过高时，直接回退原图。
+3. 压缩算法优先使用成熟的开源工具链：
+   - JPEG: jpegtran + cjpeg + Pillow fallback
+   - PNG: pngquant（高质量量化）+ zopflipng + Pillow optimize fallback
+   - WebP: cwebp（lossless / near-lossless / high-quality lossy）+ Pillow fallback
+   - GIF: gifsicle + Pillow fallback
+4. 使用 SSIM / PSNR 评估压缩前后的视觉差异，并针对不同 profile 使用不同阈值。
+5. 当前支持三种压缩 profile：
+   - `safe`：更保守，优先无损或超高质量候选
+   - `visual-lossless`：默认模式，接近 PP鸭的视觉无损压缩路线
+   - `aggressive`：更追求体积，但仍会经过质量阈值筛选
+6. 开发环境通过 Vite 代理 `/api` 到 FastAPI，只暴露前端端口。
+7. 生产环境使用 FastAPI 直接托管前端静态产物，实现单容器单端口部署。
