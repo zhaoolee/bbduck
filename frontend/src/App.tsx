@@ -1,4 +1,4 @@
-import { ChangeEvent, DragEvent, PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, DragEvent, KeyboardEvent, PointerEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { resolveDefaultShowcaseState } from './defaultShowcaseState.js'
 import { extractImageFiles, extractImageFilesFromDataTransfer } from './fileDrop.js'
@@ -469,6 +469,8 @@ const MIN_QUEUE_CONCURRENCY = 1
 const MAX_QUEUE_CONCURRENCY = 6
 const SHOW_COMPRESSION_LOGS_STORAGE_KEY = 'bbduck-show-compression-logs'
 const QUEUE_CONCURRENCY_STORAGE_KEY = 'bbduck-queue-concurrency'
+const SKILL_INVOCATION_TEXT = `从clawhub安装 https://clawhub.ai/zhaoolee/bbduck 用来优化本地的图片尺寸, 使用
+https://bbduck.v2fy.com/api/evaluation-images/00001.png 进行测试`
 
 function clampQueueConcurrency(value: number) {
   if (!Number.isFinite(value)) return DEFAULT_QUEUE_CONCURRENCY
@@ -495,12 +497,16 @@ export default function App() {
     return clampQueueConcurrency(Number(window.localStorage.getItem(QUEUE_CONCURRENCY_STORAGE_KEY) ?? DEFAULT_QUEUE_CONCURRENCY))
   })
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [skillCalloutOpen, setSkillCalloutOpen] = useState(false)
+  const [skillCopyFeedback, setSkillCopyFeedback] = useState<'idle' | 'copied' | 'failed'>('idle')
   const dragDepthRef = useRef(0)
   const queueSectionRef = useRef<HTMLElement | null>(null)
+  const uploadInputRef = useRef<HTMLInputElement | null>(null)
   const queueItemsRef = useRef<QueueItem[]>([])
   const activeWorkersRef = useRef(0)
   const reservedQueueIdsRef = useRef(new Set<string>())
   const appendNoticeTimerRef = useRef<number | undefined>(undefined)
+  const skillCopyTimerRef = useRef<number | undefined>(undefined)
 
   const hasUploads = items.length > 0
   const { visibleQueueItems, showEvaluationLoading } = resolveDefaultShowcaseState({
@@ -535,6 +541,12 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem(QUEUE_CONCURRENCY_STORAGE_KEY, String(queueConcurrency))
   }, [queueConcurrency])
+
+  useEffect(() => () => {
+    if (skillCopyTimerRef.current !== undefined) {
+      window.clearTimeout(skillCopyTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     const preventBrowserOpen = (event: globalThis.DragEvent) => {
@@ -747,6 +759,37 @@ export default function App() {
     event.target.value = ''
   }
 
+  function openUploadPicker() {
+    uploadInputRef.current?.click()
+  }
+
+  function onUploadDropzoneKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    openUploadPicker()
+  }
+
+  async function copySkillInvocationText() {
+    if (skillCopyTimerRef.current !== undefined) {
+      window.clearTimeout(skillCopyTimerRef.current)
+    }
+
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('clipboard unavailable')
+      }
+      await navigator.clipboard.writeText(SKILL_INVOCATION_TEXT)
+      setSkillCopyFeedback('copied')
+    } catch {
+      setSkillCopyFeedback('failed')
+    }
+
+    skillCopyTimerRef.current = window.setTimeout(() => {
+      setSkillCopyFeedback('idle')
+      skillCopyTimerRef.current = undefined
+    }, 1800)
+  }
+
   function onPageDragEnter(event: DragEvent<HTMLDivElement>) {
     if (!hasFileTransfer(event)) return
     event.preventDefault()
@@ -872,6 +915,21 @@ export default function App() {
           </div>
 
           <div className="page-topbar-actions">
+            <a
+              className="page-topbar-github"
+              href="https://github.com/zhaoolee/bbduck"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="在新标签页打开 BB鸭 GitHub 开源项目"
+              title="GitHub"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M12 .5C5.649.5.5 5.649.5 12c0 5.084 3.292 9.4 7.86 10.922.575.106.785-.25.785-.554 0-.273-.01-.996-.015-1.956-3.197.695-3.872-1.541-3.872-1.541-.523-1.327-1.277-1.68-1.277-1.68-1.044-.714.079-.7.079-.7 1.155.081 1.763 1.186 1.763 1.186 1.026 1.758 2.692 1.25 3.348.956.104-.743.402-1.25.731-1.538-2.552-.29-5.236-1.276-5.236-5.682 0-1.255.449-2.281 1.185-3.085-.119-.291-.514-1.463.113-3.05 0 0 .967-.31 3.168 1.178A10.93 10.93 0 0 1 12 6.032c.971.004 1.95.131 2.864.385 2.199-1.488 3.165-1.178 3.165-1.178.629 1.587.234 2.759.115 3.05.738.804 1.183 1.83 1.183 3.085 0 4.417-2.688 5.388-5.249 5.673.414.357.783 1.061.783 2.139 0 1.545-.014 2.791-.014 3.171 0 .307.207.665.79.552C20.21 21.396 23.5 17.082 23.5 12 23.5 5.649 18.351.5 12 .5Z"
+                />
+              </svg>
+            </a>
             <button
               type="button"
               className="page-topbar-settings"
@@ -934,11 +992,52 @@ export default function App() {
       ) : null}
 
       <section className="upload-dropzone-section">
-        <label className={`upload-dropzone ${dragActive ? 'is-drag-active' : ''}`}>
-          <input type="file" accept=".jpg,.jpeg,.png,.webp,.gif" multiple onChange={onInputChange} />
+        <div className="skill-callout">
+          <button
+            type="button"
+            className={`skill-callout-toggle ${skillCalloutOpen ? 'is-open' : ''}`}
+            onClick={() => setSkillCalloutOpen((current) => !current)}
+            aria-expanded={skillCalloutOpen}
+            aria-controls="skill-callout-panel"
+          >
+            <span>SKILL调用方法</span>
+            <span className="skill-callout-toggle-icon" aria-hidden="true" />
+          </button>
+          {skillCalloutOpen ? (
+            <div id="skill-callout-panel" className="skill-callout-panel">
+              <div className={`skill-callout-code ${skillCopyFeedback === 'copied' ? 'is-copied' : ''} ${skillCopyFeedback === 'failed' ? 'is-failed' : ''}`}>
+                <button
+                  type="button"
+                  className="skill-callout-copy-button"
+                  onClick={() => void copySkillInvocationText()}
+                  aria-label="复制 skill 调用方法"
+                  title="复制"
+                >
+                  {skillCopyFeedback === 'copied' ? '已复制' : skillCopyFeedback === 'failed' ? '复制失败，请手动复制' : '点击复制'}
+                </button>
+                <code>{SKILL_INVOCATION_TEXT}</code>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <input
+          ref={uploadInputRef}
+          className="upload-input"
+          type="file"
+          accept=".jpg,.jpeg,.png,.webp,.gif"
+          multiple
+          onChange={onInputChange}
+        />
+        <div
+          className={`upload-dropzone ${dragActive ? 'is-drag-active' : ''}`}
+          role="button"
+          tabIndex={0}
+          onClick={openUploadPicker}
+          onKeyDown={onUploadDropzoneKeyDown}
+        >
           <strong>点击或拖拽到当前区域开始压缩</strong>
           <span>{pending ? '当前已有任务进行中，新的图片会继续追加到队列' : '支持批量上传 JPG、PNG、WebP、GIF，文件会自动加入压缩队列'}</span>
-        </label>
+        </div>
         {appendNotice ? <p className="hero-append-notice">{appendNotice}</p> : null}
       </section>
 

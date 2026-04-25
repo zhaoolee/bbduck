@@ -161,6 +161,23 @@ def test_evaluation_images_endpoint_busts_browser_cache_when_same_name_file_chan
     assert parse_qs(urlparse(second_item['compressed_url']).query).get('v')
 
 
+def test_evaluation_image_file_endpoint_uses_version_aware_cache_headers(tmp_path, monkeypatch):
+    evaluation_dir = tmp_path / 'evaluation-images'
+    evaluation_dir.mkdir()
+    image_path = evaluation_dir / '00001.png'
+    image_path.write_bytes(build_png_bytes())
+
+    monkeypatch.setattr(routes.settings, 'evaluation_images_dir', evaluation_dir)
+
+    immutable_response = client.get('/api/evaluation-images/00001.png?v=123')
+    revalidated_response = client.get('/api/evaluation-images/00001.png')
+
+    assert immutable_response.status_code == 200
+    assert immutable_response.headers['cache-control'] == 'public, max-age=31536000, immutable'
+    assert revalidated_response.status_code == 200
+    assert revalidated_response.headers['cache-control'] == 'public, max-age=0, must-revalidate'
+
+
 def test_evaluation_images_endpoint_falls_back_to_runtime_compression_when_packaged_asset_missing(tmp_path, monkeypatch):
     evaluation_dir = tmp_path / 'evaluation-images'
     evaluation_compressed_dir = tmp_path / 'evaluation-compressed'
@@ -199,6 +216,20 @@ def test_evaluation_images_endpoint_falls_back_to_runtime_compression_when_packa
     assert len(original_response.content) == item['original_size']
     assert len(compressed_response.content) == item['compressed_size']
     assert compressed_response.content != original_response.content
+
+
+def test_output_file_endpoint_marks_generated_assets_as_immutable(tmp_path, monkeypatch):
+    output_dir = tmp_path / 'output'
+    output_dir.mkdir()
+    file_path = output_dir / 'generated.png'
+    file_path.write_bytes(build_png_bytes())
+
+    monkeypatch.setattr(routes.settings, 'data_dir', tmp_path)
+
+    response = client.get('/api/files/generated.png?kind=output')
+
+    assert response.status_code == 200
+    assert response.headers['cache-control'] == 'public, max-age=31536000, immutable'
 
 
 def test_evaluation_images_endpoint_reuses_cache_until_source_changes(tmp_path, monkeypatch):
